@@ -20,6 +20,7 @@ pi install npm:pi-model-config
 /model-setup check                    只对账参数（不改模型列表）
 /model-setup list                     列出已配置的供应商
 /model-setup remove                   删除一个供应商
+/model-setup models <pid>              删除不要的模型
 ```
 
 `/model-config` 仍注册为别名。
@@ -130,6 +131,23 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 
 `--no-prune` 保留端点已下线的模型，但仍会新增和修复。`--only <ids>` 只限制**新增**哪些模型，
 不限制删除 —— 否则一次局部同步就会留下过期条目。
+
+## `/model-setup models`
+
+手动管理某个供应商的模型列表：挑出不要的模型、确认、完成。删除的模型会记入
+`model-config.json` 的 `hiddenModels` 忽略名单，之后 `sync` 不会再把它们补回来
+——手动删除是一个决定，不该被对账撤销。
+
+```bash
+# 交互式：选供应商，再逐个挑要删的模型
+/model-setup models
+
+# 脚本化：直接删这些，不弹对话框
+/model-setup models my-gateway --only old-model,another-model
+```
+
+想恢复某个被删的模型：从 `model-config.json` 的 `hiddenModels` 里删掉对应 id，
+再跑 `sync --all`。
 
 ## `/model-setup check`
 

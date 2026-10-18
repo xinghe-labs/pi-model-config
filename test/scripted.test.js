@@ -11,6 +11,7 @@ import path from "node:path";
 import test from "node:test";
 import { onlyIds, parseOptions, wantsAll, wantsWrite } from "../src/args.js";
 import { checkFlow } from "../src/flows/check.js";
+import { modelsFlow } from "../src/flows/models.js";
 import { addFlow, planAdd } from "../src/flows/add.js";
 import { applySync, planSync, renderSyncPlan, syncFlow } from "../src/flows/sync.js";
 import { runtimeProviders } from "../src/user-config.js";
@@ -269,6 +270,100 @@ test("--force is rejected instead of being silently ignored", () => {
 	// It used to be accepted and do nothing, which is the same trap as a dropped
 	// --only: the user believes something was forced.
 	assert.throws(() => parseOptions(["--force"]), /Unknown option: --force/);
+});
+
+test("models: interactive removal writes models.json and the hidden list", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "keep" }, { id: "drop-me" }, { id: "also-drop" }]) });
+	const answers = ["gw", "drop-me", "also-drop", "— 完成 —", true];
+	const dialogs = [];
+	const ctx = {
+		log: [], cwd: dir, hasUI: true, model: {}, modelRegistry: { refresh: async () => {} },
+		ui: {
+			notify: (text, level) => dialogs.push({ text, level }),
+			select: async (title, items) => {
+				dialogs.push({ text: `[select] ${title}: ${items.join("|")}` });
+				// 找到答案里第一个还在列表里的项
+				for (const a of answers) {
+					if (typeof a === "string" && items.includes(a)) { answers.splice(answers.indexOf(a), 1); return a; }
+				}
+				return items[items.length - 1];
+			},
+			confirm: async (title, body) => { dialogs.push({ text: `[confirm] ${title}: ${body}` }); return answers.shift() ?? answers[answers.length - 1]; },
+			input: async () => { throw new Error("unexpected input"); },
+		},
+	};
+
+	await modelsFlow(ctx, {});
+
+	const models = written(dir).providers.gw.models.map((m) => m.id);
+	assert.deepEqual(models, ["keep"]);
+	const userConfig = JSON.parse(fs.readFileSync(path.join(dir, "model-config.json"), "utf8"));
+	assert.deepEqual(userConfig.hiddenModels.gw.sort(), ["also-drop", "drop-me"]);
+	const all = dialogs.map((d) => d.text).join("\n");
+	assert.match(all, /\[confirm\] 删除模型/);
+	assert.match(all, /drop-me、also-drop/);
+	assert.match(all, /sync 不会再补回来/);
+});
+
+test("models: declining the confirmation writes nothing", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "a" }, { id: "b" }]) });
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+	const ctx = scriptCtx({ confirm: false });
+	// select 需要可用：临时替换为返回第一个模型再"完成"
+	ctx.ui.select = async (title, items) => (items[0] === "a" ? "a" : "— 完成 —");
+
+	await modelsFlow(ctx, { argv: ["gw"] });
+
+	assert.match(text(ctx), /已取消，什么都没写入/);
+	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
+});
+
+test("models: --only removes exactly those ids without dialogs", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "a" }, { id: "b" }, { id: "c" }]) });
+	const ctx = scriptCtx({ confirm: false });
+	ctx.ui.select = async () => { throw new Error("no dialogs expected"); };
+
+	await modelsFlow(ctx, { argv: ["gw", "--only", "a,c"] });
+
+	assert.deepEqual(written(dir).providers.gw.models.map((m) => m.id), ["b"]);
+	const userConfig = JSON.parse(fs.readFileSync(path.join(dir, "model-config.json"), "utf8"));
+	assert.deepEqual(userConfig.hiddenModels.gw.sort(), ["a", "c"]);
+});
+
+test("models: unknown provider and unknown ids are refused or skipped", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "a" }]) });
+
+	const bad = scriptCtx();
+	await modelsFlow(bad, { argv: ["nope", "--only", "a"] });
+	assert.match(text(bad), /models\.json 里没有这个供应商：nope/);
+
+	const partial = scriptCtx();
+	await modelsFlow(partial, { argv: ["gw", "--only", "a,ghost"] });
+	assert.match(text(partial), /已跳过：ghost/);
+	assert.deepEqual(written(dir).providers.gw.models.map((m) => m.id), []);
+	assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "model-config.json"), "utf8")).hiddenModels.gw, ["a"]);
+});
+
+test("sync does not re-add models the user deleted by hand", async (t) => {
+	const dir = withAgentDir(t);
+	fs.writeFileSync(
+		path.join(dir, "model-config.json"),
+		JSON.stringify({ hiddenModels: { gw: ["removed-by-hand"] } }),
+	);
+	seed(dir, { gw: provider([{ id: "kept", cost: ZERO }]) });
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+
+	const ctx = scriptCtx({ confirm: true });
+	await syncFlow(ctx, { argv: ["--all"], fetchImpl: fakeFetch(["kept", "fresh", "removed-by-hand"]) });
+
+	const ids = written(dir).providers.gw.models.map((m) => m.id);
+	assert.ok(ids.includes("fresh"), "普通新模型照常补入");
+	assert.ok(!ids.includes("removed-by-hand"), "忽略名单里的模型不被补回");
+	assert.notEqual(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
 });
 
 // ---- check in a session with no UI ----------------------------------------

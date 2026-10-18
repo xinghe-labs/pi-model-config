@@ -22,6 +22,7 @@ not loaded until Pi re-reads its package list.
 /model-setup check                    reconcile model parameters (never changes the list)
 /model-setup list                     show configured providers
 /model-setup remove                   delete a provider
+/model-setup models <pid>              remove models you do not want
 ```
 
 `/model-config` is still registered as an alias.
@@ -147,6 +148,24 @@ Two rules make it safe to run against a flaky gateway:
 `--no-prune` keeps models the endpoint stopped listing but still adds and
 repairs. `--only <ids>` limits which *new* models are added; it never limits
 removals, so a partial sync cannot leave a stale list behind.
+
+## `/model-setup models`
+
+Hand-manages one provider's model list: pick models to remove, confirm, done.
+Deleted models are recorded in `hiddenModels` (in `model-config.json`), so
+`sync` will not re-add them on the next run — removing a model is a decision,
+not something an audit undoes.
+
+```bash
+# interactive: pick a provider, then pick models until done
+/model-setup models
+
+# scripted: remove exactly these, no dialogs
+/model-setup models my-gateway --only old-model,another-model
+```
+
+To restore a hidden model, delete its id from `hiddenModels` in
+`model-config.json` and run `sync --all`.
 
 ## `/model-setup check`
 

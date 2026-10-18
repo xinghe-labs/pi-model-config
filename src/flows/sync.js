@@ -25,7 +25,7 @@ import { modelsJsonPath } from "../paths.js";
 import { fetchModelMeta, probeKey } from "../probe.js";
 import { SOURCE_LABEL, resolveModelMeta } from "../resolve.js";
 import { applyScopeUpdate } from "../scope.js";
-import { isRuntimeProvider, runtimeProviders } from "../user-config.js";
+import { isRuntimeProvider, readUserConfig, runtimeProviders } from "../user-config.js";
 import { planProvider } from "./check.js";
 
 // An endpoint that lists the same id twice must not become two identical entries
@@ -68,6 +68,12 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 	const missing = targets.filter((pid) => !providers[pid]);
 	if (missing.length) throw new Error(`models.json 里没有这个供应商：${missing.join("、")}`);
 	if (!targets.length) throw new Error("models.json 里还没有任何供应商");
+
+	// Models the user deleted by hand stay deleted: sync's job is to mirror the
+	// endpoint, but a deliberate removal is recorded in hiddenModels and wins
+	// over the endpoint.
+	const hiddenModels = readUserConfig().hiddenModels;
+	const hiddenSet = (pid) => new Set(Array.isArray(hiddenModels?.[pid]) ? hiddenModels[pid] : []);
 
 	// One models.dev request shared by every endpoint; each probe runs in parallel
 	// with it (see planProvider).
@@ -113,7 +119,8 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 		if (row.skipped || row.unreachable) continue;
 		const models = Array.isArray(row.provider.models) ? row.provider.models : [];
 		const known = new Set(models.map((m) => m?.id).filter(Boolean));
-		const candidates = uniqueById(row.endpointList).filter((m) => !known.has(m.id));
+		const hidden = hiddenSet(row.pid);
+		const candidates = uniqueById(row.endpointList).filter((m) => !known.has(m.id) && !hidden.has(m.id));
 		const wanted = only && only.length ? new Set(only) : undefined;
 		const selected = wanted ? candidates.filter((m) => wanted.has(m.id)) : candidates;
 		row.candidates = candidates;

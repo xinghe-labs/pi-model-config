@@ -17,6 +17,7 @@ import { checkFlow } from "./flows/check.js";
 import { addFlow } from "./flows/add.js";
 import { listFlow } from "./flows/list.js";
 import { removeFlow } from "./flows/remove.js";
+import { modelsFlow } from "./flows/models.js";
 import { syncFlow } from "./flows/sync.js";
 import { canPrompt, errorMessage, notify } from "./output.js";
 
@@ -28,18 +29,20 @@ const USAGE = [
 	"/model-setup check              对账模型参数（不改模型列表）",
 	"/model-setup list               列出已配置的供应商",
 	"/model-setup remove             删除一个供应商",
+	"/model-setup models <pid>       删除该供应商里不要的模型（记入忽略名单）",
 	"",
 	"add 和 sync 默认只打印计划，加 --all 或 --only <ids> 才写盘。",
 	"全部选项见 `/model-setup add --help`。",
 ].join("\n");
 
-const SUBCOMMANDS = ["add", "check", "list", "remove", "sync"];
+const SUBCOMMANDS = ["add", "check", "list", "models", "remove", "sync"];
 const MENU = [
 	"添加端点",
 	"与端点同步模型列表",
 	"检查 / 修复模型参数",
 	"查看已配置的端点",
 	"删除端点",
+	"管理模型列表（删除不要的模型）",
 ];
 
 // A first-word match, but only when the whole input is a subcommand: `/model-setup
@@ -69,6 +72,7 @@ export default function modelConfigExtension(pi) {
 			if (sub === "list") return await listFlow(ctx);
 			if (sub === "check") return await checkFlow(ctx);
 			if (sub === "remove") return await removeFlow(ctx);
+			if (sub === "models") return await modelsFlow(ctx, { argv: rest });
 			if (sub === "sync") return await syncFlow(ctx, { argv: rest });
 			if (sub === "add") return await addFlow(ctx, { argv: rest.length ? rest : undefined });
 			if (!canPrompt(ctx)) {
@@ -83,6 +87,7 @@ export default function modelConfigExtension(pi) {
 			if (action === "检查 / 修复模型参数") return await checkFlow(ctx);
 			if (action === "查看已配置的端点") return await listFlow(ctx);
 			if (action === "删除端点") return await removeFlow(ctx);
+			if (action === "管理模型列表（删除不要的模型）") return await modelsFlow(ctx);
 			return await addFlow(ctx);
 		} catch (err) {
 			notify(ctx, `model-setup failed: ${errorMessage(err)}`, "error");
