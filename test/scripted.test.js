@@ -354,6 +354,26 @@ test("the menu path asks for consent and then writes", async (t) => {
 	assert.deepEqual(written(dir).providers.gw.models.map((m) => m.id), ["new-model"]);
 });
 
+test("typing /model-setup sync with no arguments also asks for consent", async (t) => {
+	// argv arrives as an empty array when the user types the subcommand with no
+	// arguments — that is a menu-like request, not a scripted one, so the consent
+	// dialog is the writer flag here too.
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "old-model" }]) });
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+
+	const no = scriptCtx({ confirm: false });
+	await syncFlow(no, { argv: [], fetchImpl: fakeFetch(["new-model"]) });
+	assert.match(text(no), /\[confirm\] 应用同步/);
+	assert.match(text(no), /已取消，什么都没写入/);
+	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
+
+	const yes = scriptCtx({ confirm: true });
+	await syncFlow(yes, { argv: [], fetchImpl: fakeFetch(["new-model"]) });
+	assert.match(text(yes), /已写入 models\.json（保留备份）/);
+	assert.deepEqual(written(dir).providers.gw.models.map((m) => m.id), ["new-model"]);
+});
+
 test("the menu path skips the dialog when there is nothing to change", async (t) => {
 	const dir = withAgentDir(t);
 	seed(dir, { gw: provider([{ id: "m" }]) });

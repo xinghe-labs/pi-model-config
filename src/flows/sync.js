@@ -265,7 +265,7 @@ export async function syncFlow(ctx, { argv, fetchImpl = fetch } = {}) {
 	if (!wantsWrite(options)) {
 		// Menu path (no arguments): the user cannot pass --all here, so the consent
 		// dialog IS the writer flag — it names every change, deletions included.
-		if (!argv && canPrompt(ctx)) {
+		if ((!argv || argv.length === 0) && canPrompt(ctx)) {
 			const pending = pendingChanges(plan, prune);
 			if (!pending.length) return plan; // the plan already said: 已同步
 			const doomedRows = prune
