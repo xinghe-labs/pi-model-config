@@ -162,14 +162,17 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 
 	if (!repaired.length) {
 		if (auto) return;
-		// Without a UI the deviations are real but unconfirmed, so say where the
-		// explicit-consent path is instead of leaving the user with a bare "nothing".
-		notify(
-			ctx,
-			canConsent
-				? "什么都没写入。"
-				: "什么都没写入：修复需要确认。要落地请运行 /model-setup sync --all，或在交互式会话里操作。",
-		);
+		// Three different reasons end here, and "nothing written" alone would read
+		// as a failure in all of them: nothing deviated, the user declined, or
+		// there was no UI to consent with. Say which one it was.
+		const hadDeviations = findings.some((p) => p.changes.length);
+		if (!hadDeviations) {
+			notify(ctx, "所有模型参数一致，没有需要修复的。");
+		} else if (canConsent) {
+			notify(ctx, "已跳过修复，什么都没写入。");
+		} else {
+			notify(ctx, "什么都没写入：修复需要确认。要落地请运行 /model-setup sync --all，或在交互式会话里操作。");
+		}
 		return;
 	}
 

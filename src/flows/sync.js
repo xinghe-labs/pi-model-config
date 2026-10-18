@@ -20,7 +20,7 @@ import { USAGE_TEXT, onlyIds, parseOptions, wantsWrite } from "../args.js";
 import { ZERO_COST } from "../const.js";
 import { backupFile, readModelsConfig, writeJson } from "../json-file.js";
 import { loadOfficialData } from "../official.js";
-import { errorMessage, notify } from "../output.js";
+import { canPrompt, errorMessage, notify } from "../output.js";
 import { modelsJsonPath } from "../paths.js";
 import { fetchModelMeta, probeKey } from "../probe.js";
 import { SOURCE_LABEL, resolveModelMeta } from "../resolve.js";
@@ -192,7 +192,7 @@ function pendingChanges(plan, prune) {
 }
 
 // The only place sync touches disk.
-export async function applySync(ctx, plan, { prune = true } = {}) {
+export async function applySync(ctx, plan, { prune = true, deleteConfirmed = false } = {}) {
 	const config = readModelsConfig();
 	config.providers ??= {};
 	const touched = [];
@@ -263,6 +263,27 @@ export async function syncFlow(ctx, { argv, fetchImpl = fetch } = {}) {
 	notify(ctx, renderSyncPlan(plan, { prune }));
 
 	if (!wantsWrite(options)) {
+		// Menu path (no arguments): the user cannot pass --all here, so the consent
+		// dialog IS the writer flag — it names every change, deletions included.
+		if (!argv && canPrompt(ctx)) {
+			const pending = pendingChanges(plan, prune);
+			if (!pending.length) return plan; // the plan already said: 已同步
+			const doomedRows = prune
+				? plan.rows.filter((row) => !row.skipped && !row.runtime && !row.unreachable && row.removed.length)
+				: [];
+			const summary = pending
+				.map((row) => `${row.pid}：新增 ${row.added.length}、删除 ${prune ? row.removed.length : 0}、修复 ${row.changed.length}`)
+				.join("\n");
+			const doomedList = doomedRows.map((row) => `${row.pid}：${row.removed.join("、")}`).join("\n");
+			const ok = await ctx.ui.confirm(
+				"应用同步",
+				`${summary}\n\n` +
+					(doomedList ? `将删除以下模型：\n${doomedList}\n\n` : "") +
+					"写入 models.json？（会先备份）",
+			);
+			if (!ok) return notify(ctx, "已取消，什么都没写入。");
+			return applySync(ctx, plan, { prune, deleteConfirmed: doomedRows.length > 0 });
+		}
 		notify(
 			ctx,
 			"什么都没写入。加 --all 应用全部改动，或加 --only <ids> 只添加这些模型。",
@@ -272,6 +293,8 @@ export async function syncFlow(ctx, { argv, fetchImpl = fetch } = {}) {
 
 	// Deletions are the irreversible half, so an interactive user is asked. A
 	// scripted run proceeds: the caller has the plan in hand and asked for it.
+	// (The menu path below passes its own consent through applySync's
+	// `deleteConfirmed`, because its dialog already named every doomed model.)
 	const doomed = prune
 		? plan.rows.filter((row) => !row.skipped && !row.runtime && !row.unreachable && row.removed.length)
 		: [];

@@ -43,7 +43,10 @@ function scriptCtx({ confirm = true } = {}) {
 		modelRegistry: { refresh: async () => {} },
 		ui: {
 			notify: (text, level) => log.push({ text, level }),
-			confirm: async () => confirm,
+			confirm: async (title, body) => {
+				log.push({ text: `[confirm] ${title}: ${body}` });
+				return confirm;
+			},
 			select: () => boom("select"),
 			input: () => boom("input"),
 		},
@@ -314,17 +317,55 @@ const provider = (models, extra = {}) => ({
 	...extra,
 });
 
-test("sync writes nothing without --all or --only", async (t) => {
+test("sync in print mode writes nothing without --all or --only", async (t) => {
 	const dir = withAgentDir(t);
 	seed(dir, { gw: provider([{ id: "old-model" }]) });
 	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
-	const ctx = scriptCtx();
+	const ctx = printCtx(t);
 	await syncFlow(ctx, { fetchImpl: fakeFetch(["new-model"]) });
 
 	assert.match(text(ctx), /1 个新模型/);
 	assert.match(text(ctx), /端点已不再提供/);
 	assert.match(text(ctx), /什么都没写入/);
+	assert.match(text(ctx), /--all/);
 	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before, "the plan must not rewrite the file");
+});
+
+test("the menu path asks for consent and then writes", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "old-model" }]) });
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+
+	// Declined: byte-identical.
+	const no = scriptCtx({ confirm: false });
+	await syncFlow(no, { fetchImpl: fakeFetch(["new-model"]), argv: undefined });
+	assert.match(text(no), /应用同步/);
+	assert.match(text(no), /新增 1、删除 1、修复 0/);
+	assert.match(text(no), /将删除以下模型/);
+	assert.match(text(no), /已取消，什么都没写入/);
+	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
+
+	// Accepted: written, and the deletion consent was already part of the dialog
+	// (no second confirm — exactly one dialog was recorded).
+	const yes = scriptCtx({ confirm: true });
+	await syncFlow(yes, { fetchImpl: fakeFetch(["new-model"]), argv: undefined });
+	assert.match(text(yes), /已写入 models\.json（保留备份）/);
+	assert.equal(yes.log.filter((e) => e.text.startsWith("[confirm]")).length, 1, "删除同意已含在应用确认里，不再二次弹窗");
+	assert.deepEqual(written(dir).providers.gw.models.map((m) => m.id), ["new-model"]);
+});
+
+test("the menu path skips the dialog when there is nothing to change", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m" }]) });
+	// First converge via the flag path so the entry exactly matches the endpoint.
+	await syncFlow(scriptCtx({ confirm: true }), { argv: ["--all"], fetchImpl: fakeFetch(["m"]) });
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+
+	const ctx = scriptCtx({ confirm: true });
+	await syncFlow(ctx, { fetchImpl: fakeFetch(["m"]), argv: undefined });
+	assert.equal(ctx.log.filter((e) => e.text.startsWith("[confirm]")).length, 0, "已同步时不应弹确认");
+	assert.match(text(ctx), /已同步/);
+	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
 });
 
 test("sync --all adds new models, removes gone ones and keeps the rest", async (t) => {
