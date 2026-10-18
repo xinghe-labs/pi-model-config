@@ -90,7 +90,7 @@ pi install npm:pi-model-config
 每个字段按顺序查三个来源：
 
 | 来源 | 怎么取 |
-|---|---|
+| --- | --- |
 | **端点元数据** | `GET {baseUrl}/models`，读 `context_length`、`max_completion_tokens`、`supported_parameters`、`architecture.input_modalities`、`inputTokenLimit`、`supportedGenerationMethods`、`reasoning_options`、`reasoning_supported_efforts` 等 |
 | **models.dev** | `https://models.dev/api.json`，只提取「短名 → 能力」映射并本地缓存 |
 | **模型名** | id 里的 `128k` / `1m` 标记，加上少量家族默认值 |
@@ -220,7 +220,7 @@ Gemini 的 REST 用 `?key=` 鉴权而不是 bearer，所以探测走查询参数
 ## 配置文件一览
 
 | 文件 | 用途 |
-|---|---|
+| --- | --- |
 | `~/.pi/agent/models.json` | 读写。JSONC：允许注释和尾逗号。 |
 | `~/.pi/agent/settings.json` | 只碰 `enabledModels`。严格 JSON，与 Pi 的 settings-manager 一致。 |
 | `~/.pi/agent/model-config.json` | 可选：`runtimeProviders`。 |

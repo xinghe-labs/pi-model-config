@@ -96,7 +96,7 @@ the key, the models and a provider id, and derives the rest.
 Three sources, in this order, per field:
 
 | Source | How |
-|---|---|
+| --- | --- |
 | **Endpoint metadata** | `GET {baseUrl}/models`, read for `context_length`, `max_completion_tokens`, `supported_parameters`, `architecture.input_modalities`, `inputTokenLimit`, `supportedGenerationMethods`, `reasoning_options`, `reasoning_supported_efforts`, … |
 | **models.dev** | `https://models.dev/api.json`, reduced to a short-name → capabilities map and cached locally |
 | **Model name** | A `128k` / `1m` marker in the id, plus a handful of family defaults |
@@ -252,7 +252,7 @@ by `supportedGenerationMethods` to drop embeddings.
 ## Configuration reference
 
 | File | Purpose |
-|---|---|
+| --- | --- |
 | `~/.pi/agent/models.json` | Read and written. JSONC: comments and trailing commas allowed. |
 | `~/.pi/agent/settings.json` | `enabledModels` only. Strict JSON, like Pi's own settings manager. |
 | `~/.pi/agent/model-config.json` | Optional: `runtimeProviders`. |
