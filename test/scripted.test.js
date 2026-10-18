@@ -313,7 +313,7 @@ test("models: declining the confirmation writes nothing", async (t) => {
 	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
 	const ctx = scriptCtx({ confirm: false });
 	// select 需要可用：临时替换为返回第一个模型再"完成"
-	ctx.ui.select = async (title, items) => (items[0] === "a" ? "a" : "— 完成 —");
+	ctx.ui.select = async (_title, items) => (items[0] === "a" ? "a" : "— 完成 —");
 
 	await modelsFlow(ctx, { argv: ["gw"] });
 
