@@ -1,7 +1,7 @@
 {
 	"name": "pi-model-config",
 	"version": "0.1.0",
-	"description": "Add a Pi model endpoint in five answers. Context window, output limit, reasoning, vision and thinking levels are inferred from the endpoint itself, then from models.dev, then from the model name — and can be re-audited later.",
+	"description": "Add a Pi model endpoint from a URL and a key, then keep it in sync: context window, output limit, reasoning, vision and thinking levels are inferred from the endpoint itself, then models.dev, then the model name — then re-added, pruned or repaired on demand.",
 	"type": "module",
 	"license": "MIT",
 	"author": "xinghe-labs",
@@ -18,7 +18,8 @@
 		"model-config",
 		"openai-compatible",
 		"ollama",
-		"gateway"
+		"gateway",
+		"sync"
 	],
 	"pi": {
 		"extensions": [

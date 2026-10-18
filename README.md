@@ -1,10 +1,11 @@
 # pi-model-config
 
-**Five answers and a working endpoint. The model's numbers are derived, not typed.**
+**A URL and a key. The model's numbers are derived, not typed.**
 
 A Pi extension for adding a third-party, self-hosted or proxied model endpoint to
-`models.json` — and for re-auditing those numbers later against the endpoint and
-[models.dev](https://models.dev).
+`models.json` — and for keeping that entry in step with the endpoint afterwards:
+re-add what appeared, drop what disappeared, repair what drifted, all against the
+endpoint and [models.dev](https://models.dev).
 
 ```bash
 pi install npm:pi-model-config
@@ -14,14 +15,37 @@ Start a new session afterwards (or `/reload`): a package installed mid-session i
 not loaded until Pi re-reads its package list.
 
 ```text
-/model-setup            menu
-/model-setup add        add or replace a provider
-/model-setup check      reconcile models.json against the endpoint and models.dev
-/model-setup list       show configured providers
-/model-setup remove     delete a provider
+/model-setup                          menu
+/model-setup add                      add or replace a provider (five questions)
+/model-setup add <url> <key>          add from a URL and key, no questions
+/model-setup sync                     add new / remove gone / repair drifting models
+/model-setup check                    reconcile model parameters (never changes the list)
+/model-setup list                     show configured providers
+/model-setup remove                   delete a provider
 ```
 
 `/model-config` is still registered as an alias.
+
+The one-liner form is the point of the two newest commands: point it at a gateway
+and it fills in `contextWindow`, `maxTokens`, reasoning, image input, thinking
+levels and `cost` from the endpoint's own metadata, so nothing has to be typed.
+
+```bash
+# what would be added, and with which numbers — writes nothing
+/model-setup add https://gw.example.com/v1 sk-... 
+
+# actually add three models from that endpoint
+/model-setup add https://gw.example.com/v1 sk-... --only gpt-4o,deepseek-v4-pro
+
+# the endpoint changed: add what is new, drop what it stopped serving
+/model-setup sync --all
+```
+
+`add` and `sync` print a plan and **write nothing** until `--all` or `--only` is
+given. There is no mode where a typo silently rewrites the file: `--onlyy` is an
+error, not a no-op. `--dry-run` forces the preview even when a writer flag is
+present, and `--key` / `$PI_MODEL_CONFIG_API_KEY` avoid putting the key in shell
+history.
 
 ## The problem
 
@@ -97,6 +121,29 @@ never heard of the model, a hand-tuned entry is left alone.
   payload, so losing the network downgrades to stale data rather than to nothing.
 - The cache lives at `~/.pi/agent/model-config-modelsdev-cache.json`.
 
+## `/model-setup sync`
+
+Makes the `models` list match what the endpoint serves right now:
+
+- **adds** models the endpoint lists and the configuration does not have,
+- **removes** models the endpoint no longer lists (with a confirmation when
+  there is a UI, and always after a backup),
+- **repairs** parameters that drifted, using the same rules as `check`,
+- leaves everything else — including fields it does not understand — alone.
+
+Two rules make it safe to run against a flaky gateway:
+
+1. **Removal requires a successful probe.** If the endpoint cannot be read, the
+   provider is skipped entirely — no removal, and no repair from guesses either.
+   A gateway that is down for a minute can never empty a configuration.
+2. **Runtime providers are skipped.** Their model list is produced by another
+   extension at refresh time; `models.json` holds a static fallback that is
+   *supposed* to differ from live data.
+
+`--no-prune` keeps models the endpoint stopped listing but still adds and
+repairs. `--only <ids>` limits which *new* models are added; it never limits
+removals, so a partial sync cannot leave a stale list behind.
+
 ## `/model-setup check`
 
 Reconciles the static `models` lists in `models.json` against the endpoint and
@@ -121,9 +168,11 @@ until the next session. `/model-setup check` is the deterministic path.
 
 ## Non-interactive use
 
-`check` and `list` are read-only and work in RPC, JSON and print modes; their
-report goes to stdout when there is no UI. `add` and `remove` need dialogs and
-refuse politely instead of failing halfway.
+`check`, `list`, `sync` and the `<url> <key>` form of `add` work in RPC, JSON and
+print modes; their report goes to stdout when there is no UI. `sync` asks before
+deleting only when a UI exists, so an automated run gets the plan and applies it
+as asked. `remove`, the menu, and `add` without arguments need dialogs and refuse
+politely instead of failing halfway.
 
 ## Providers managed by another extension
 

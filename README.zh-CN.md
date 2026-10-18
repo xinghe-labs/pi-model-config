@@ -1,9 +1,10 @@
 # pi-model-config
 
-**五个问题，换来一个能用的端点。模型的参数是推断出来的，不是手填的。**
+**一个 URL 加一个 Key。模型的参数是推断出来的，不是手填的。**
 
-一个 Pi 扩展：把第三方 / 自建 / 中转模型端点加进 `models.json`，并且以后可以拿端点和
-[models.dev](https://models.dev) 重新对账这些参数。
+一个 Pi 扩展：把第三方 / 自建 / 中转模型端点加进 `models.json`，并让这条配置持续跟端点保持一致
+—— 端点上新出现的加进来、消失的删掉、参数跑偏的修回来，依据是端点自身和
+[models.dev](https://models.dev)。
 
 ```bash
 pi install npm:pi-model-config
@@ -12,14 +13,35 @@ pi install npm:pi-model-config
 安装后请新开一个会话（或 `/reload`）：会话进行中安装的包，要等 Pi 重新读取包列表才会加载。
 
 ```text
-/model-setup            菜单
-/model-setup add        添加或替换一个供应商
-/model-setup check      用端点和 models.dev 对账 models.json
-/model-setup list       列出已配置的供应商
-/model-setup remove     删除一个供应商
+/model-setup                          菜单
+/model-setup add                      添加或替换一个供应商（五个问题）
+/model-setup add <url> <key>          只给 URL 和 Key，不问问题
+/model-setup sync                     补齐新模型 / 删掉失效模型 / 修参数
+/model-setup check                    只对账参数（不改模型列表）
+/model-setup list                     列出已配置的供应商
+/model-setup remove                   删除一个供应商
 ```
 
 `/model-config` 仍注册为别名。
+
+两个新命令的重点就是这行免交互形式：把 URL 和 Key 给它，`contextWindow`、`maxTokens`、
+推理 / 视觉能力、思考强度、`cost` 全部从端点自己的元数据推断，不用手填。
+
+```bash
+# 先看会加什么、参数是多少 —— 一个字节都不写
+/model-setup add https://gw.example.com/v1 sk-...
+
+# 真的从这个端点加三个模型
+/model-setup add https://gw.example.com/v1 sk-... --only gpt-4o,deepseek-v4-pro
+
+# 端点变了：补齐新模型、删掉已下线的
+/model-setup sync --all
+```
+
+`add` 和 `sync` 默认**只打印计划、不写盘**，必须给 `--all` 或 `--only` 才落地。
+不存在「敲错一个 flag 就把文件重写一遍」的模式：`--onlyy` 直接报错，不会当成没写。
+`--dry-run` 即使带了写入 flag 也只预览；`--key` / `$PI_MODEL_CONFIG_API_KEY`
+可以避免把 Key 写进 shell 历史。
 
 ## 它解决什么
 
@@ -86,6 +108,25 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
   check / 启动都要空等 15 秒超时。失败时保留上一次成功的数据 —— 掉线是降级到旧数据，不是降级到没有。
 - 缓存位置：`~/.pi/agent/model-config-modelsdev-cache.json`。
 
+## `/model-setup sync`
+
+让 `models` 列表与端点当前的实际情况一致：
+
+- **新增** 端点列出了、配置里还没有的模型；
+- **删除** 端点已不再列出的模型（有 UI 时先确认，且一定先备份）；
+- **修复** 跑偏的参数，规则与 `check` 相同；
+- 其余一律保留，包括它不认识的字段。
+
+两条规则让它可以放心对着一个不稳定的网关跑：
+
+1. **删除必须以探测成功为前提。** 端点读不到就整个跳过这个供应商 —— 不删，也**不用猜测值去修**。
+   网关挂一分钟，绝不可能把你的配置清空。
+2. **由其他扩展管理的供应商一律跳过。** 它们的模型列表是那个扩展在刷新时生成的，
+   `models.json` 里存的静态兜底**本来就该**与实时数据不同。
+
+`--no-prune` 保留端点已下线的模型，但仍会新增和修复。`--only <ids>` 只限制**新增**哪些模型，
+不限制删除 —— 否则一次局部同步就会留下过期条目。
+
 ## `/model-setup check`
 
 把 `models.json` 里的静态 `models` 与端点、models.dev 对账，并询问是否写回修正。
@@ -105,8 +146,9 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 
 ## 非交互模式
 
-`check` 和 `list` 只读，在 RPC / JSON / print 模式下都能用；没有 UI 时报告写到 stdout。
-`add` 和 `remove` 需要对话框，会明确拒绝而不是做到一半失败。
+`check`、`list`、`sync` 以及 `add <url> <key>` 形式在 RPC / JSON / print 模式下都能用，
+没有 UI 时报告写到 stdout。`sync` 只在有 UI 时才为删除弹确认，自动化运行拿到计划后会照要求执行。
+`remove`、菜单、以及不带参数的 `add` 需要对话框，会明确拒绝而不是做到一半失败。
 
 ## 由其他扩展管理的供应商
 

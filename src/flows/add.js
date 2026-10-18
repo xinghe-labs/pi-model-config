@@ -1,18 +1,19 @@
-// `/model-setup add` — five questions, everything else inferred.
+// `/model-setup add` — add or replace one endpoint.
 //
-//   1. endpoint base URL
-//   2. API type (pre-selected from the URL)
-//   3. API key
-//   4. models (probed from the endpoint, or typed by hand)
-//   5. provider id (default from the host)
+// Interactive form: five questions (URL, API type, key, models, provider id).
+// Scripted form:   `/model-setup add <url> [<key>] [--id x] [--api y] [--all|--only a,b]`
+//                  With neither --all nor --only it prints the plan and writes
+//                  nothing, so a gateway's 200 models are never dumped in blind.
 //
 // Context window, output limit, reasoning, image input and thinking levels are
-// resolved from endpoint metadata, then models.dev, then the model name.
-import { API_TYPES, ZERO_COST } from "../const.js";
+// resolved from endpoint metadata, then models.dev, then the model name. The
+// same helpers back both forms, so they cannot drift apart.
+import { API_TYPES, API_VALUES, ZERO_COST } from "../const.js";
+import { USAGE_TEXT, onlyIds, parseOptions, wantsWrite } from "../args.js";
 import { inferApi, maskKey, suggestProviderId } from "../infer.js";
 import { backupFile, readModelsConfig, writeJson } from "../json-file.js";
 import { loadOfficialData } from "../official.js";
-import { errorMessage, notify, requireUI } from "../output.js";
+import { errorMessage, notify } from "../output.js";
 import { modelsJsonPath } from "../paths.js";
 import { fetchModelMeta } from "../probe.js";
 import { SOURCE_LABEL, resolveModelMeta } from "../resolve.js";
@@ -21,6 +22,7 @@ import { isRuntimeProvider, readUserConfig } from "../user-config.js";
 
 const CANCELLED = "Cancelled";
 const LOOPBACK = ["localhost", "127.0.0.1", "::1", "[::1]"];
+const MAX_PLAN_LINES = 40;
 
 async function promptModelIds(ctx) {
 	const raw = await ctx.ui.input("Model IDs (comma or space separated)", "gpt-4o, deepseek-v4-pro");
@@ -75,12 +77,211 @@ async function chooseApi(ctx, baseUrl) {
 	return ordered[labels.indexOf(picked)]?.value ?? ordered.find((t) => t.value === picked)?.value ?? guessed;
 }
 
-export async function addFlow(ctx, { fetchImpl = fetch } = {}) {
-	if (!requireUI(ctx, "add")) return;
+// ---- shared core ----------------------------------------------------------
+// Everything below is used by both the interactive and the scripted form.
+
+export function normalizeBaseUrl(raw) {
+	return String(raw ?? "").trim().replace(/\/+$/, "");
+}
+
+export function validateProviderId(raw) {
+	if (!/^[A-Za-z0-9_-]+$/.test(raw)) {
+		throw new Error(`Provider id may only contain letters, digits, - and _: ${raw}`);
+	}
+	return raw;
+}
+
+export function buildProvider({ pid, baseUrl, apiKey, api, resolved }) {
+	return {
+		name: pid,
+		baseUrl,
+		apiKey: apiKey || "none",
+		api,
+		// cost is spread first and last: a resolved definition always carries it,
+		// and the outer spread guarantees it even if resolution changes.
+		models: resolved.map((r) => ({ cost: { ...ZERO_COST }, ...r.def })),
+	};
+}
+
+function describeModel({ def, sources, meta }) {
+	const efforts = def.thinkingLevelMap ? Object.values(def.thinkingLevelMap).filter(Boolean) : [];
+	const bare = meta?.contextWindow === undefined && meta?.reasoning === undefined && meta?.vision === undefined;
+	return (
+		`- ${def.id}  ctx=${def.contextWindow} (${SOURCE_LABEL[sources.contextWindow]})` +
+		`  max=${def.maxTokens} (${SOURCE_LABEL[sources.maxTokens]})` +
+		`${def.reasoning ? `  reasoning (${SOURCE_LABEL[sources.reasoning]})${efforts.length ? ` [${efforts.join("/")}]` : ""}` : ""}` +
+		`${def.input.includes("image") ? `  +image (${SOURCE_LABEL[sources.vision]})` : ""}` +
+		`${bare ? "  (endpoint reported no metadata)" : ""}`
+	);
+}
+
+export function renderResolved(resolved, limit = Number.POSITIVE_INFINITY) {
+	const shown = resolved.slice(0, limit).map(describeModel);
+	if (resolved.length > limit) shown.push(`  … and ${resolved.length - limit} more`);
+	return shown.join("\n");
+}
+
+// Resolve every probed model against models.dev and the name heuristics.
+export async function resolveModels(metas, api, { fetchImpl = fetch } = {}) {
+	const official = await loadOfficialData({ fetchImpl });
+	return metas.map((m) => ({ meta: m, ...resolveModelMeta(m.id, api, m, official) }));
+}
+
+// Plan an add without touching disk. Throws on anything the caller should report
+// as a refusal (bad URL, unknown API type, empty model list, unknown --only id).
+export async function planAdd({ baseUrl: rawUrl, apiKey = "", api, pid, only, fetchImpl = fetch }) {
+	const baseUrl = normalizeBaseUrl(rawUrl);
+	if (!baseUrl) throw new Error("No endpoint URL given");
+	if (!/^https?:\/\//i.test(baseUrl)) throw new Error(`Not a URL: ${baseUrl}`);
+
+	const chosenApi = api ?? inferApi(baseUrl);
+	if (!API_VALUES.includes(chosenApi)) {
+		throw new Error(`Unknown API type: ${chosenApi} (expected one of ${API_VALUES.join(", ")})`);
+	}
+
+	const providerId = validateProviderId(String(pid ?? "").trim() || suggestProviderId(baseUrl));
+
+	// Read first: an unparseable models.json must stop us before the probe, not
+	// after the user has waited for it.
+	const config = readModelsConfig();
+
+	const probed = await fetchModelMeta(baseUrl, apiKey, chosenApi, { fetchImpl });
+	if (!probed.length) throw new Error(`The endpoint listed no models at ${baseUrl}`);
+
+	let metas = probed;
+	if (only && only.length) {
+		const have = new Set(probed.map((m) => m.id));
+		const missing = only.filter((id) => !have.has(id));
+		if (missing.length) throw new Error(`The endpoint does not list: ${missing.join(", ")}`);
+		const want = new Set(only);
+		metas = probed.filter((m) => want.has(m.id));
+	}
+
+	const resolved = await resolveModels(metas, chosenApi, { fetchImpl });
+	return {
+		baseUrl,
+		apiKey,
+		api: chosenApi,
+		pid: providerId,
+		probed,
+		metas,
+		resolved,
+		replaces: Boolean(config.providers?.[providerId]),
+	};
+}
+
+export function renderAddPlan(plan) {
+	const head =
+		`Endpoint ${plan.baseUrl}  ·  api=${plan.api}  ·  key=${maskKey(plan.apiKey)}  ·  provider id ${plan.pid}` +
+		(plan.replaces ? "  (exists; it will be replaced)" : "");
+	const count =
+		plan.metas.length === plan.probed.length
+			? `Probed ${plan.probed.length} model(s); adding all of them:`
+			: `Probed ${plan.probed.length} model(s); adding ${plan.metas.length}:`;
+	return [
+		head,
+		count,
+		renderResolved(plan.resolved, MAX_PLAN_LINES),
+		"",
+		"Inferred from endpoint metadata > models.dev > model name.",
+		"models.json would be backed up and then rewritten.",
+	].join("\n");
+}
+
+// The only place an add touches disk.
+export async function applyAdd(ctx, plan) {
+	// Re-read: the plan was made before a probe that may have taken a while, and
+	// another writer may have been here since.
+	const config = readModelsConfig();
+	config.providers ??= {};
+	config.providers[plan.pid] = buildProvider(plan);
+
+	backupFile(modelsJsonPath());
+	try {
+		writeJson(modelsJsonPath(), config);
+	} catch (err) {
+		return notify(ctx, `Writing models.json failed: ${errorMessage(err)}`, "error");
+	}
+
+	// The refresh is not allowed to abort the flow: enabledModels still has to be
+	// updated, otherwise a scoped /model list never shows the new provider.
+	try {
+		await ctx.modelRegistry.refresh({ providers: [plan.pid] });
+	} catch (err) {
+		notify(ctx, `Written, but the registry refresh failed (a restart will load it): ${errorMessage(err)}`, "warning");
+	}
+
+	notify(
+		ctx,
+		`Configured ${plan.pid}: ${plan.resolved.length} model(s), api=${plan.api}, key=${maskKey(plan.apiKey)}\n` +
+			`${renderResolved(plan.resolved)}\n` +
+			"Inferred from endpoint metadata > models.dev > model name. Edit models.json by hand at any time, " +
+			"or re-audit with /model-setup check. The original file was backed up.",
+	);
+
+	const warn = readUserConfig().error;
+	if (warn) notify(ctx, warn, "warning");
+	applyScopeUpdate(ctx, plan.pid);
+	notify(ctx, `Use /model to select ${plan.pid}/<model> (switching affects this session only).`);
+	return plan;
+}
+
+// ---- scripted form --------------------------------------------------------
+
+export async function addFromArgs(ctx, { options, positionals, fetchImpl = fetch }) {
+	if (options.flags.has("help")) return notify(ctx, USAGE_TEXT);
+
+	const [url, keyArg] = positionals;
+	const apiKey = String(options.values.key ?? keyArg ?? process.env.PI_MODEL_CONFIG_API_KEY ?? "").trim();
+	const only = onlyIds(options);
+
+	let plan;
+	try {
+		plan = await planAdd({
+			baseUrl: url,
+			apiKey,
+			api: options.values.api,
+			pid: options.values.id,
+			only,
+			fetchImpl,
+		});
+	} catch (err) {
+		// A 401 on a keyless call is the common failure here, and the raw message
+		// ("HTTP 401") does not say what to do about it.
+		return notify(ctx, `add failed: ${errorMessage(err)}\nPass the key as the second argument or with --key.`, "error");
+	}
+
+	if (!wantsWrite(options)) {
+		notify(
+			ctx,
+			`${renderAddPlan(plan)}\n\nNothing was written. Re-run with --all to add every probed model, or ` +
+				`--only <ids> to add some of them.`,
+		);
+		return plan;
+	}
+
+	return applyAdd(ctx, plan);
+}
+
+// ---- interactive form -----------------------------------------------------
+
+export async function addFlow(ctx, { fetchImpl = fetch, argv } = {}) {
+	// A scripted invocation must work in print/JSON/RPC mode, where there are no
+	// dialogs at all.
+	if (Array.isArray(argv)) {
+		const options = parseOptions(argv);
+		return addFromArgs(ctx, { options, positionals: options.positional, fetchImpl });
+	}
+
+	if (!(ctx?.hasUI && typeof ctx.ui?.select === "function")) {
+		notify(ctx, "add needs an interactive session; this mode cannot prompt.", "error");
+		notify(ctx, USAGE_TEXT);
+		return;
+	}
 
 	const baseUrlInput = await ctx.ui.input("Endpoint base URL", "https://api.example.com/v1");
 	if (baseUrlInput === undefined) return notify(ctx, CANCELLED);
-	const baseUrl = baseUrlInput.trim().replace(/\/+$/, "");
+	const baseUrl = normalizeBaseUrl(baseUrlInput);
 	if (!baseUrl) return notify(ctx, CANCELLED);
 	if (!/^https?:\/\//i.test(baseUrl)) return notify(ctx, `Not a URL: ${baseUrl}`, "error");
 	if (!(await confirmPlaintext(ctx, baseUrl))) return notify(ctx, CANCELLED);
@@ -139,57 +340,6 @@ export async function addFlow(ctx, { fetchImpl = fetch } = {}) {
 	}
 
 	notify(ctx, "Fetching official model data from models.dev…");
-	const official = await loadOfficialData({ fetchImpl });
-	const resolved = metas.map((m) => ({ meta: m, ...resolveModelMeta(m.id, api, m, official) }));
-
-	const config = existingConfig;
-	config.providers ??= {};
-	config.providers[pid] = {
-		name: pid,
-		baseUrl,
-		apiKey: apiKey || "none",
-		api,
-		// cost is spread first and last: a resolved definition always carries it,
-		// and the outer spread guarantees it even if resolution changes.
-		models: resolved.map((r) => ({ cost: { ...ZERO_COST }, ...r.def })),
-	};
-	backupFile(modelsJsonPath());
-	try {
-		writeJson(modelsJsonPath(), config);
-	} catch (err) {
-		return notify(ctx, `Writing models.json failed: ${errorMessage(err)}`, "error");
-	}
-
-	// The refresh is not allowed to abort the flow: enabledModels still has to be
-	// updated, otherwise a scoped /model list never shows the new provider.
-	try {
-		await ctx.modelRegistry.refresh({ providers: [pid] });
-	} catch (err) {
-		notify(ctx, `Written, but the registry refresh failed (a restart will load it): ${errorMessage(err)}`, "warning");
-	}
-
-	const detail = resolved
-		.map(({ def, sources, meta }) => {
-			const efforts = def.thinkingLevelMap ? Object.values(def.thinkingLevelMap).filter(Boolean) : [];
-			const bare = meta?.contextWindow === undefined && meta?.reasoning === undefined && meta?.vision === undefined;
-			return (
-				`- ${def.id}  ctx=${def.contextWindow} (${SOURCE_LABEL[sources.contextWindow]})` +
-				`  max=${def.maxTokens} (${SOURCE_LABEL[sources.maxTokens]})` +
-				`${def.reasoning ? `  reasoning (${SOURCE_LABEL[sources.reasoning]})${efforts.length ? ` [${efforts.join("/")}]` : ""}` : ""}` +
-				`${def.input.includes("image") ? `  +image (${SOURCE_LABEL[sources.vision]})` : ""}` +
-				`${bare ? "  (endpoint reported no metadata)" : ""}`
-			);
-		})
-		.join("\n");
-	notify(
-		ctx,
-		`Configured ${pid}: ${resolved.length} model(s), api=${api}, key=${maskKey(apiKey)}\n${detail}\n` +
-			"Inferred from endpoint metadata > models.dev > model name. Edit models.json by hand at any time, " +
-			"or re-audit with /model-setup check. The original file was backed up.",
-	);
-
-	const warn = readUserConfig().error;
-	if (warn) notify(ctx, warn, "warning");
-	applyScopeUpdate(ctx, pid);
-	notify(ctx, `Use /model to select ${pid}/<model> (switching affects this session only).`);
+	const resolved = await resolveModels(metas, api, { fetchImpl });
+	return applyAdd(ctx, { baseUrl, apiKey, api, pid, probed: metas, metas, resolved, replaces: false });
 }

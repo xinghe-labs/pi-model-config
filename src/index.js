@@ -17,17 +17,30 @@ import { checkFlow } from "./flows/check.js";
 import { addFlow } from "./flows/add.js";
 import { listFlow } from "./flows/list.js";
 import { removeFlow } from "./flows/remove.js";
+import { syncFlow } from "./flows/sync.js";
 import { canPrompt, errorMessage, notify } from "./output.js";
 
 const USAGE = [
-	"/model-setup            menu",
-	"/model-setup add        add a provider (asks for URL, API type, key, models, id)",
-	"/model-setup check      reconcile models.json against the endpoint and models.dev",
-	"/model-setup list       show configured providers",
-	"/model-setup remove     delete a provider",
+	"/model-setup                    menu",
+	"/model-setup add                add a provider interactively (five questions)",
+	"/model-setup add <url> <key>    add from a URL and key; parameters are inferred",
+	"/model-setup sync               add new / remove gone / repair drifting models",
+	"/model-setup check              reconcile model parameters (never changes the list)",
+	"/model-setup list               show configured providers",
+	"/model-setup remove             delete a provider",
+	"",
+	"add and sync print a plan and write nothing until you pass --all or --only <ids>.",
+	"Run `/model-setup add --help` for every option.",
 ].join("\n");
 
-const SUBCOMMANDS = ["add", "check", "list", "remove"];
+const SUBCOMMANDS = ["add", "check", "list", "remove", "sync"];
+const MENU = [
+	"Add endpoint",
+	"Sync model list with the endpoint",
+	"Check / repair model parameters",
+	"Show configured endpoints",
+	"Remove endpoint",
+];
 
 // A first-word match, but only when the whole input is a subcommand: `/model-setup
 // list` is a command, `/model-setup https://x/v1` is a URL to add.
@@ -51,25 +64,22 @@ export default function modelConfigExtension(pi) {
 	});
 
 	const handler = async (args, ctx) => {
-		const { sub } = parseArgs(args);
+		const { sub, rest } = parseArgs(args);
 		try {
 			if (sub === "list") return await listFlow(ctx);
 			if (sub === "check") return await checkFlow(ctx);
 			if (sub === "remove") return await removeFlow(ctx);
-			if (sub === "add") return await addFlow(ctx);
+			if (sub === "sync") return await syncFlow(ctx, { argv: rest });
+			if (sub === "add") return await addFlow(ctx, { argv: rest.length ? rest : undefined });
 			if (!canPrompt(ctx)) {
 				// Non-interactive: there is no menu to show, so print the usage rather
 				// than returning silently.
 				notify(ctx, USAGE);
 				return;
 			}
-			const action = await ctx.ui.select("Model endpoint configuration", [
-				"Add endpoint",
-				"Check / repair model parameters",
-				"Show configured endpoints",
-				"Remove endpoint",
-			]);
+			const action = await ctx.ui.select("Model endpoint configuration", MENU);
 			if (action === undefined) return;
+			if (action === "Sync model list with the endpoint") return await syncFlow(ctx);
 			if (action === "Check / repair model parameters") return await checkFlow(ctx);
 			if (action === "Show configured endpoints") return await listFlow(ctx);
 			if (action === "Remove endpoint") return await removeFlow(ctx);
@@ -81,7 +91,7 @@ export default function modelConfigExtension(pi) {
 
 	pi.registerCommand("model-setup", {
 		description:
-			"Configure a model endpoint and infer model capabilities (endpoint metadata > models.dev > name): add / check / list / remove",
+			"Add a model endpoint from a URL and key and infer model capabilities (endpoint metadata > models.dev > name), then sync or check: add / sync / check / list / remove",
 		handler,
 	});
 	// The name this command shipped under before it was packaged. Kept registered so
