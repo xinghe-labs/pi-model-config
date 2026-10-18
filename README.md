@@ -129,7 +129,11 @@ Makes the `models` list match what the endpoint serves right now:
 - **removes** models the endpoint no longer lists (with a confirmation when
   there is a UI, and always after a backup),
 - **repairs** parameters that drifted, using the same rules as `check`,
+- **fills** a provider that has no model list at all (`"models": []`, or no key),
+  which is what a hand-written `{ baseUrl, api, apiKey }` looks like,
 - leaves everything else — including fields it does not understand — alone.
+
+An endpoint that lists the same id twice yields one entry, not two.
 
 Two rules make it safe to run against a flaky gateway:
 
