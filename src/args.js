@@ -12,22 +12,22 @@ const BOOLEAN = new Set(["all", "yes", "apply", "dry-run", "no-prune", "help"]);
 const VALUED = new Set(["only", "api", "id", "key"]);
 
 export const USAGE_TEXT = [
-	"Usage:",
-	"  /model-setup add <url> [<key>] [options]",
-	"      --all              add every model the endpoint lists, and write",
-	"      --only a,b,c       add just these model ids, and write",
-	"      --id <pid>         provider id (default: derived from the host)",
+	"用法：",
+	"  /model-setup add <url> [<key>] [选项]",
+	"      --all              添加端点提供的全部模型，并写入",
+	"      --only a,b,c       只添加这些模型，并写入",
+	"      --id <pid>         供应商 id（默认从主机名推导）",
 	"      --api <type>       openai-completions | openai-responses | anthropic-messages | google-generative-ai",
-	"      --key <key>        API key (otherwise: second positional argument, then $PI_MODEL_CONFIG_API_KEY)",
-	"      --dry-run          print the plan even with --all / --only",
+	"      --key <key>        API Key（否则依次取：第二个参数、$PI_MODEL_CONFIG_API_KEY）",
+	"      --dry-run          即使带了 --all / --only 也只打印计划",
 	"",
-	"  /model-setup sync [<pid>...] [options]",
-	"      --all              add every new model, prune gone ones, repair, and write",
-	"      --only a,b,c       add just these new model ids, and write",
-	"      --no-prune         never remove a model the endpoint stopped listing",
-	"      --dry-run          print the plan even with --all / --only",
+	"  /model-setup sync [<pid>...] [选项]",
+	"      --all              补齐新模型、删除失效模型、修复参数，并写入",
+	"      --only a,b,c       只添加这些新模型，并写入",
+	"      --no-prune         绝不删除端点已下线的模型",
+	"      --dry-run          即使带了 --all / --only 也只打印计划",
 	"",
-	"Without --all or --only nothing is written: you get the plan first.",
+	"不带 --all 或 --only 时一个字节都不写：先给你看计划。",
 ].join("\n");
 
 // `--only a,b,c` and `--only=a,b,c` both work; the value may also be a space

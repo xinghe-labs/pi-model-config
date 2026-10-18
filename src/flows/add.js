@@ -20,31 +20,31 @@ import { SOURCE_LABEL, resolveModelMeta } from "../resolve.js";
 import { applyScopeUpdate } from "../scope.js";
 import { isRuntimeProvider, readUserConfig } from "../user-config.js";
 
-const CANCELLED = "Cancelled";
+const CANCELLED = "已取消";
 const LOOPBACK = ["localhost", "127.0.0.1", "::1", "[::1]"];
 const MAX_PLAN_LINES = 40;
 
 async function promptModelIds(ctx) {
-	const raw = await ctx.ui.input("Model IDs (comma or space separated)", "gpt-4o, deepseek-v4-pro");
+	const raw = await ctx.ui.input("模型 ID（逗号或空格分隔）", "gpt-4o, deepseek-v4-pro");
 	if (raw === undefined) return undefined;
 	return raw.split(/[\s,]+/).filter(Boolean);
 }
 
 async function pickModels(ctx, ids) {
-	const how = await ctx.ui.select(`Probed ${ids.length} model(s). Add how?`, [
-		"Add all of them",
-		"Pick one by one",
-		"Skip and type the IDs myself",
+	const how = await ctx.ui.select(`探测到 ${ids.length} 个模型，怎么加？`, [
+		"全部添加",
+		"逐个挑选",
+		"跳过，我自己输入 ID",
 	]);
 	if (how === undefined) return undefined;
-	if (how === "Add all of them") return ids;
-	if (how === "Skip and type the IDs myself") return promptModelIds(ctx);
+	if (how === "全部添加") return ids;
+	if (how === "跳过，我自己输入 ID") return promptModelIds(ctx);
 	const chosen = new Set();
 	for (;;) {
 		const rest = ids.filter((id) => !chosen.has(id));
 		if (!rest.length) break;
-		const pick = await ctx.ui.select(`Pick a model (${chosen.size} selected)`, [...rest, "— done —"]);
-		if (pick === undefined || pick === "— done —") break;
+		const pick = await ctx.ui.select(`挑选模型（已选 ${chosen.size} 个）`, [...rest, "— 完成了 —"]);
+		if (pick === undefined || pick === "— 完成了 —") break;
 		chosen.add(pick);
 	}
 	return [...chosen];
@@ -61,16 +61,16 @@ async function confirmPlaintext(ctx, baseUrl) {
 		hostname = "";
 	}
 	if (LOOPBACK.includes(hostname)) return true;
-	return Boolean(await ctx.ui.confirm("Plaintext warning", "This endpoint uses http://, so the API key is sent unencrypted. Continue?"));
+	return Boolean(await ctx.ui.confirm("明文传输警告", "该端点使用 http://，API Key 将以明文发送。继续吗？"));
 }
 
 async function chooseApi(ctx, baseUrl) {
 	const guessed = inferApi(baseUrl);
 	const ordered = [...API_TYPES.filter((t) => t.value === guessed), ...API_TYPES.filter((t) => t.value !== guessed)];
 	const labels = ordered.map((t) =>
-		t.value === guessed ? `${t.value} — ${t.hint} (guessed from URL, press enter to accept)` : `${t.value} — ${t.hint}`,
+		t.value === guessed ? `${t.value} — ${t.hint}（根据 URL 推测，回车确认）` : `${t.value} — ${t.hint}`,
 	);
-	const picked = await ctx.ui.select("API type", labels);
+	const picked = await ctx.ui.select("API 类型", labels);
 	if (picked === undefined) return undefined;
 	// select normally returns the label; tolerate a bare value so `api` can never
 	// be written as undefined.
@@ -86,7 +86,7 @@ export function normalizeBaseUrl(raw) {
 
 export function validateProviderId(raw) {
 	if (!/^[A-Za-z0-9_-]+$/.test(raw)) {
-		throw new Error(`Provider id may only contain letters, digits, - and _: ${raw}`);
+		throw new Error(`供应商 id 只能包含字母、数字、- 和 _：${raw}`);
 	}
 	return raw;
 }
@@ -111,7 +111,7 @@ function describeModel({ def, sources, meta }) {
 		`  max=${def.maxTokens} (${SOURCE_LABEL[sources.maxTokens]})` +
 		`${def.reasoning ? `  reasoning (${SOURCE_LABEL[sources.reasoning]})${efforts.length ? ` [${efforts.join("/")}]` : ""}` : ""}` +
 		`${def.input.includes("image") ? `  +image (${SOURCE_LABEL[sources.vision]})` : ""}` +
-		`${bare ? "  (endpoint reported no metadata)" : ""}`
+		`${bare ? "（端点未提供元数据）" : ""}`
 	);
 }
 
@@ -131,12 +131,12 @@ export async function resolveModels(metas, api, { fetchImpl = fetch } = {}) {
 // as a refusal (bad URL, unknown API type, empty model list, unknown --only id).
 export async function planAdd({ baseUrl: rawUrl, apiKey = "", api, pid, only, fetchImpl = fetch }) {
 	const baseUrl = normalizeBaseUrl(rawUrl);
-	if (!baseUrl) throw new Error("No endpoint URL given");
-	if (!/^https?:\/\//i.test(baseUrl)) throw new Error(`Not a URL: ${baseUrl}`);
+	if (!baseUrl) throw new Error("没有给出端点 URL");
+	if (!/^https?:\/\//i.test(baseUrl)) throw new Error(`不是有效的 URL：${baseUrl}`);
 
 	const chosenApi = api ?? inferApi(baseUrl);
 	if (!API_VALUES.includes(chosenApi)) {
-		throw new Error(`Unknown API type: ${chosenApi} (expected one of ${API_VALUES.join(", ")})`);
+		throw new Error(`未知的 API 类型：${chosenApi}（可选：${API_VALUES.join(", ")}）`);
 	}
 
 	const providerId = validateProviderId(String(pid ?? "").trim() || suggestProviderId(baseUrl));
@@ -146,13 +146,13 @@ export async function planAdd({ baseUrl: rawUrl, apiKey = "", api, pid, only, fe
 	const config = readModelsConfig();
 
 	const probed = await fetchModelMeta(baseUrl, apiKey, chosenApi, { fetchImpl });
-	if (!probed.length) throw new Error(`The endpoint listed no models at ${baseUrl}`);
+	if (!probed.length) throw new Error(`端点没有返回任何模型：${baseUrl}`);
 
 	let metas = probed;
 	if (only && only.length) {
 		const have = new Set(probed.map((m) => m.id));
 		const missing = only.filter((id) => !have.has(id));
-		if (missing.length) throw new Error(`The endpoint does not list: ${missing.join(", ")}`);
+		if (missing.length) throw new Error(`端点未提供这些模型：${missing.join(", ")}`);
 		const want = new Set(only);
 		metas = probed.filter((m) => want.has(m.id));
 	}
@@ -173,18 +173,18 @@ export async function planAdd({ baseUrl: rawUrl, apiKey = "", api, pid, only, fe
 export function renderAddPlan(plan) {
 	const head =
 		`Endpoint ${plan.baseUrl}  ·  api=${plan.api}  ·  key=${maskKey(plan.apiKey)}  ·  provider id ${plan.pid}` +
-		(plan.replaces ? "  (exists; it will be replaced)" : "");
+		(plan.replaces ? "（已存在，将被替换）" : "");
 	const count =
 		plan.metas.length === plan.probed.length
-			? `Probed ${plan.probed.length} model(s); adding all of them:`
-			: `Probed ${plan.probed.length} model(s); adding ${plan.metas.length}:`;
+			? `探测到 ${plan.probed.length} 个模型，将全部添加：`
+			: `探测到 ${plan.probed.length} 个模型，将添加其中 ${plan.metas.length} 个：`;
 	return [
 		head,
 		count,
 		renderResolved(plan.resolved, MAX_PLAN_LINES),
 		"",
-		"Inferred from endpoint metadata > models.dev > model name.",
-		"models.json would be backed up and then rewritten.",
+		"参数推断来源：端点元数据 > models.dev > 模型名。",
+		"写盘前会先备份 models.json。",
 	].join("\n");
 }
 
@@ -200,7 +200,7 @@ export async function applyAdd(ctx, plan) {
 	try {
 		writeJson(modelsJsonPath(), config);
 	} catch (err) {
-		return notify(ctx, `Writing models.json failed: ${errorMessage(err)}`, "error");
+		return notify(ctx, `写入 models.json 失败：${errorMessage(err)}`, "error");
 	}
 
 	// The refresh is not allowed to abort the flow: enabledModels still has to be
@@ -208,21 +208,21 @@ export async function applyAdd(ctx, plan) {
 	try {
 		await ctx.modelRegistry.refresh({ providers: [plan.pid] });
 	} catch (err) {
-		notify(ctx, `Written, but the registry refresh failed (a restart will load it): ${errorMessage(err)}`, "warning");
+		notify(ctx, `已写入，但注册表刷新失败（重启后会加载）：${errorMessage(err)}`, "warning");
 	}
 
 	notify(
 		ctx,
-		`Configured ${plan.pid}: ${plan.resolved.length} model(s), api=${plan.api}, key=${maskKey(plan.apiKey)}\n` +
+		`已配置 ${plan.pid}：${plan.resolved.length} 个模型，api=${plan.api}，key=${maskKey(plan.apiKey)}\n` +
 			`${renderResolved(plan.resolved)}\n` +
-			"Inferred from endpoint metadata > models.dev > model name. Edit models.json by hand at any time, " +
-			"or re-audit with /model-setup check. The original file was backed up.",
+			"参数推断来源：端点元数据 > models.dev > 模型名。随时可以手动编辑 models.json，" +
+			"或用 /model-setup check 重新对账。原文件已备份。",
 	);
 
 	const warn = readUserConfig().error;
 	if (warn) notify(ctx, warn, "warning");
 	applyScopeUpdate(ctx, plan.pid);
-	notify(ctx, `Use /model to select ${plan.pid}/<model> (switching affects this session only).`);
+	notify(ctx, `用 /model 选择 ${plan.pid}/<模型>（切换只影响当前会话）。`);
 	return plan;
 }
 
@@ -248,14 +248,14 @@ export async function addFromArgs(ctx, { options, positionals, fetchImpl = fetch
 	} catch (err) {
 		// A 401 on a keyless call is the common failure here, and the raw message
 		// ("HTTP 401") does not say what to do about it.
-		return notify(ctx, `add failed: ${errorMessage(err)}\nPass the key as the second argument or with --key.`, "error");
+		return notify(ctx, `add 失败：${errorMessage(err)}\n请把 Key 作为第二个参数传入，或用 --key。`, "error");
 	}
 
 	if (!wantsWrite(options)) {
 		notify(
 			ctx,
-			`${renderAddPlan(plan)}\n\nNothing was written. Re-run with --all to add every probed model, or ` +
-				`--only <ids> to add some of them.`,
+			`${renderAddPlan(plan)}\n\n什么都没写入。加 --all 添加全部探测到的模型，或加 ` +
+				`--only <ids> 只添加其中一部分。`,
 		);
 		return plan;
 	}
@@ -274,22 +274,22 @@ export async function addFlow(ctx, { fetchImpl = fetch, argv } = {}) {
 	}
 
 	if (!(ctx?.hasUI && typeof ctx.ui?.select === "function")) {
-		notify(ctx, "add needs an interactive session; this mode cannot prompt.", "error");
+		notify(ctx, "add 需要交互式会话，当前模式无法弹出对话框。", "error");
 		notify(ctx, USAGE_TEXT);
 		return;
 	}
 
-	const baseUrlInput = await ctx.ui.input("Endpoint base URL", "https://api.example.com/v1");
+	const baseUrlInput = await ctx.ui.input("端点地址（base URL）", "https://api.example.com/v1");
 	if (baseUrlInput === undefined) return notify(ctx, CANCELLED);
 	const baseUrl = normalizeBaseUrl(baseUrlInput);
 	if (!baseUrl) return notify(ctx, CANCELLED);
-	if (!/^https?:\/\//i.test(baseUrl)) return notify(ctx, `Not a URL: ${baseUrl}`, "error");
+	if (!/^https?:\/\//i.test(baseUrl)) return notify(ctx, `不是有效的 URL：${baseUrl}`, "error");
 	if (!(await confirmPlaintext(ctx, baseUrl))) return notify(ctx, CANCELLED);
 
 	const api = await chooseApi(ctx, baseUrl);
 	if (api === undefined) return notify(ctx, CANCELLED);
 
-	const apiKeyInput = await ctx.ui.input("API key (blank for a local server; input is echoed)", "sk-...");
+	const apiKeyInput = await ctx.ui.input("API Key（本地服务可留空；输入会回显）", "sk-...");
 	if (apiKeyInput === undefined) return notify(ctx, CANCELLED);
 	const apiKey = apiKeyInput.trim();
 
@@ -297,7 +297,7 @@ export async function addFlow(ctx, { fetchImpl = fetch, argv } = {}) {
 	// A failed probe is not an error — the user can type the IDs.
 	let metas;
 	try {
-		notify(ctx, "Probing the model list…");
+		notify(ctx, "正在探测模型列表……");
 		const probed = await fetchModelMeta(baseUrl, apiKey, api, { fetchImpl });
 		const ids = await pickModels(ctx, probed.map((m) => m.id));
 		if (ids === undefined) return notify(ctx, CANCELLED);
@@ -305,18 +305,18 @@ export async function addFlow(ctx, { fetchImpl = fetch, argv } = {}) {
 		const picked = probed.filter((m) => wanted.has(m.id));
 		metas = picked.length ? picked : ids.map((id) => ({ id }));
 	} catch (err) {
-		notify(ctx, `Probe failed (${errorMessage(err)}); enter the model IDs by hand.`, "warning");
+		notify(ctx, `探测失败（${errorMessage(err)}），请手动输入模型 ID。`, "warning");
 		const ids = await promptModelIds(ctx);
 		if (ids === undefined) return notify(ctx, CANCELLED);
 		metas = ids.map((id) => ({ id }));
 	}
-	if (!metas.length) return notify(ctx, "No models to add", "error");
+	if (!metas.length) return notify(ctx, "没有可添加的模型", "error");
 
 	const suggested = suggestProviderId(baseUrl);
-	const pidInput = await ctx.ui.input("Provider id (the key in models.json, press enter for the suggestion)", suggested);
+	const pidInput = await ctx.ui.input("供应商 id（models.json 里的键名，回车用建议值）", suggested);
 	if (pidInput === undefined) return notify(ctx, CANCELLED);
 	const pid = pidInput.trim() || suggested;
-	if (!/^[A-Za-z0-9_-]+$/.test(pid)) return notify(ctx, `Provider id may only contain letters, digits, - and _: ${pid}`, "error");
+	if (!/^[A-Za-z0-9_-]+$/.test(pid)) return notify(ctx, `供应商 id 只能包含字母、数字、- 和 _：${pid}`, "error");
 
 	// Read before warning so an unparseable models.json stops here, not after four
 	// more questions.
@@ -327,19 +327,19 @@ export async function addFlow(ctx, { fetchImpl = fetch, argv } = {}) {
 		return notify(ctx, errorMessage(err), "error");
 	}
 	if (existingConfig.providers?.[pid]) {
-		notify(ctx, `${pid} already exists and will be replaced (models.json is backed up first).`, "warning");
+		notify(ctx, `${pid} 已存在，将被替换（会先备份 models.json）。`, "warning");
 	}
 	if (isRuntimeProvider(pid)) {
 		notify(
 			ctx,
-			`Note: ${pid} is listed as a runtime provider, so another extension replaces its models when it refreshes. ` +
-				"Model parameters written here only act as the static fallback (apiKey / baseUrl are still read). " +
-				"Consider a different id, or manage this endpoint in that extension.",
+			`注意：${pid} 是运行时供应商，另一个扩展刷新时会重写它的模型列表。` +
+				"这里写的模型参数只是静态兜底（apiKey / baseUrl 仍然有效）。" +
+				"建议换一个 id，或直接在那个扩展里管理该端点。",
 			"warning",
 		);
 	}
 
-	notify(ctx, "Fetching official model data from models.dev…");
+	notify(ctx, "正在从 models.dev 获取官方模型数据……");
 	const resolved = await resolveModels(metas, api, { fetchImpl });
 	return applyAdd(ctx, { baseUrl, apiKey, api, pid, probed: metas, metas, resolved, replaces: false });
 }

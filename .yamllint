@@ -1,0 +1,7 @@
+# GitHub Actions workflows routinely exceed 80 columns (run names, matrix
+# entries, step descriptions); wrapping them hurts readability more than the
+# long lines do. Everything else keeps yamllint's defaults.
+extends: default
+
+rules:
+  line-length: disable

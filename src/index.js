@@ -21,25 +21,25 @@ import { syncFlow } from "./flows/sync.js";
 import { canPrompt, errorMessage, notify } from "./output.js";
 
 const USAGE = [
-	"/model-setup                    menu",
-	"/model-setup add                add a provider interactively (five questions)",
-	"/model-setup add <url> <key>    add from a URL and key; parameters are inferred",
-	"/model-setup sync               add new / remove gone / repair drifting models",
-	"/model-setup check              reconcile model parameters (never changes the list)",
-	"/model-setup list               show configured providers",
-	"/model-setup remove             delete a provider",
+	"/model-setup                    菜单",
+	"/model-setup add                交互式添加供应商（问五个问题）",
+	"/model-setup add <url> <key>    只给 URL 和 Key，参数自动推断",
+	"/model-setup sync               补齐新模型 / 删掉失效模型 / 修参数",
+	"/model-setup check              对账模型参数（不改模型列表）",
+	"/model-setup list               列出已配置的供应商",
+	"/model-setup remove             删除一个供应商",
 	"",
-	"add and sync print a plan and write nothing until you pass --all or --only <ids>.",
-	"Run `/model-setup add --help` for every option.",
+	"add 和 sync 默认只打印计划，加 --all 或 --only <ids> 才写盘。",
+	"全部选项见 `/model-setup add --help`。",
 ].join("\n");
 
 const SUBCOMMANDS = ["add", "check", "list", "remove", "sync"];
 const MENU = [
-	"Add endpoint",
-	"Sync model list with the endpoint",
-	"Check / repair model parameters",
-	"Show configured endpoints",
-	"Remove endpoint",
+	"添加端点",
+	"与端点同步模型列表",
+	"检查 / 修复模型参数",
+	"查看已配置的端点",
+	"删除端点",
 ];
 
 // A first-word match, but only when the whole input is a subcommand: `/model-setup
@@ -77,12 +77,12 @@ export default function modelConfigExtension(pi) {
 				notify(ctx, USAGE);
 				return;
 			}
-			const action = await ctx.ui.select("Model endpoint configuration", MENU);
+			const action = await ctx.ui.select("模型端点配置", MENU);
 			if (action === undefined) return;
-			if (action === "Sync model list with the endpoint") return await syncFlow(ctx);
-			if (action === "Check / repair model parameters") return await checkFlow(ctx);
-			if (action === "Show configured endpoints") return await listFlow(ctx);
-			if (action === "Remove endpoint") return await removeFlow(ctx);
+			if (action === "与端点同步模型列表") return await syncFlow(ctx);
+			if (action === "检查 / 修复模型参数") return await checkFlow(ctx);
+			if (action === "查看已配置的端点") return await listFlow(ctx);
+			if (action === "删除端点") return await removeFlow(ctx);
 			return await addFlow(ctx);
 		} catch (err) {
 			notify(ctx, `model-setup failed: ${errorMessage(err)}`, "error");

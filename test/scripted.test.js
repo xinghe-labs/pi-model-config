@@ -137,8 +137,8 @@ test("add without a write flag prints the plan and writes nothing", async (t) =>
 	await addFlow(ctx, { argv: ["https://gw.example.com/v1", "sk-1"], fetchImpl: fakeFetch(["a-model"]) });
 
 	assert.equal(fs.existsSync(path.join(dir, "models.json")), false, "a plan must not touch disk");
-	assert.match(text(ctx), /Probed 1 model\(s\)/);
-	assert.match(text(ctx), /Nothing was written/);
+	assert.match(text(ctx), /探测到 1 个模型/);
+	assert.match(text(ctx), /什么都没写入/);
 	assert.match(text(ctx), /--all/);
 });
 
@@ -176,7 +176,7 @@ test("add --only refuses ids the endpoint never offered", async (t) => {
 	withAgentDir(t);
 	const ctx = scriptCtx();
 	await addFlow(ctx, { argv: ["https://gw.example.com/v1", "sk-1", "--only", "nope"], fetchImpl: fakeFetch(["a-model"]) });
-	assert.match(text(ctx), /does not list: nope/);
+	assert.match(text(ctx), /端点未提供这些模型：nope/);
 });
 
 test("add takes the key from --key and from PI_MODEL_CONFIG_API_KEY", async (t) => {
@@ -202,19 +202,19 @@ test("add refuses a bad URL, an unknown API type and a bad provider id", async (
 	withAgentDir(t);
 	const url = scriptCtx();
 	await addFlow(url, { argv: ["not-a-url", "--all"], fetchImpl: fakeFetch(["m"]) });
-	assert.match(text(url), /Not a URL: not-a-url/);
+	assert.match(text(url), /不是有效的 URL：not-a-url/);
 
 	const api = scriptCtx();
 	await addFlow(api, { argv: ["https://x/v1", "--api", "nonsense", "--all"], fetchImpl: fakeFetch(["m"]) });
-	assert.match(text(api), /Unknown API type: nonsense/);
+	assert.match(text(api), /未知的 API 类型：nonsense/);
 
 	const pid = scriptCtx();
 	await addFlow(pid, { argv: ["https://x/v1", "--id", "bad id!", "--all"], fetchImpl: fakeFetch(["m"]) });
-	assert.match(text(pid), /Provider id may only contain/);
+	assert.match(text(pid), /供应商 id 只能包含/);
 
 	const none = scriptCtx();
 	await addFlow(none, { argv: ["--all"], fetchImpl: fakeFetch(["m"]) });
-	assert.match(text(none), /No endpoint URL given/);
+	assert.match(text(none), /没有给出端点 URL/);
 });
 
 test("add explains a 401 instead of just reporting HTTP 401", async (t) => {
@@ -226,7 +226,7 @@ test("add explains a 401 instead of just reporting HTTP 401", async (t) => {
 	};
 	await addFlow(ctx, { argv: ["https://gw.example.com/v1"], fetchImpl: denied });
 	assert.match(text(ctx), /HTTP 401/);
-	assert.match(text(ctx), /Pass the key as the second argument or with --key/);
+	assert.match(text(ctx), /请把 Key 作为第二个参数传入，或用 --key/);
 });
 
 test("add keeps the interactive path when no arguments are given", async (t) => {
@@ -234,7 +234,7 @@ test("add keeps the interactive path when no arguments are given", async (t) => 
 	const ctx = printCtx(t);
 	await addFlow(ctx, {});
 	// No argv means the five-question flow, which needs dialogs.
-	assert.match(text(ctx), /add needs an interactive session/);
+	assert.match(text(ctx), /add 需要交互式会话/);
 });
 
 test("add --help prints the usage without touching the network", async (t) => {
@@ -248,7 +248,7 @@ test("add --help prints the usage without touching the network", async (t) => {
 			return { ok: true, json: async () => ({}) };
 		},
 	});
-	assert.match(text(ctx), /Usage:/);
+	assert.match(text(ctx), /用法：/);
 	assert.match(text(ctx), /--no-prune/);
 	assert.equal(called, 0);
 });
@@ -283,8 +283,8 @@ test("check reports in print mode instead of crashing on a missing dialog", asyn
 	await assert.doesNotReject(() => checkFlow(ctx, { fetchImpl: fakeFetch(["m"]) }));
 
 	assert.match(text(ctx), /ctx 4096 -> 131072/);
-	assert.match(text(ctx), /writing nothing/);
-	assert.match(text(ctx), /sync --all/, "point at the path that does have explicit consent");
+	assert.match(text(ctx), /不写入任何内容/);
+	assert.match(text(ctx), /sync --all/, "指出有明确同意的路径");
 	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before, "an unconfirmed repair must not be written");
 });
 
@@ -297,7 +297,7 @@ test("check does not ask for the made-up `--select` flag", async (t) => {
 	await checkFlow(ctx, { fetchImpl: fakeFetch(["m"]) });
 	const report = text(ctx);
 	assert.ok(!/--select/.test(report), "no such flag is documented:" + report);
-	assert.match(report, /reporting every endpoint, writing nothing/);
+	assert.match(report, /只报告所有端点/);
 });
 
 // ---- sync -----------------------------------------------------------------
@@ -321,9 +321,9 @@ test("sync writes nothing without --all or --only", async (t) => {
 	const ctx = scriptCtx();
 	await syncFlow(ctx, { fetchImpl: fakeFetch(["new-model"]) });
 
-	assert.match(text(ctx), /1 new model\(s\)/);
-	assert.match(text(ctx), /the endpoint no longer lists/);
-	assert.match(text(ctx), /Nothing was written/);
+	assert.match(text(ctx), /1 个新模型/);
+	assert.match(text(ctx), /端点已不再提供/);
+	assert.match(text(ctx), /什么都没写入/);
 	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before, "the plan must not rewrite the file");
 });
 
@@ -343,7 +343,7 @@ test("sync --all adds new models, removes gone ones and keeps the rest", async (
 	const fresh = models.find((m) => m.id === "fresh-model");
 	assert.equal(fresh.contextWindow, 131072, "a new model is inferred from the endpoint");
 	assert.deepEqual(fresh.cost, ZERO);
-	assert.match(text(ctx), /Wrote models\.json/);
+	assert.match(text(ctx), /已写入 models\.json/);
 	assert.ok(fs.readdirSync(dir).some((f) => f.startsWith("models.json.bak-")), "a delete must be preceded by a backup");
 });
 
@@ -368,11 +368,11 @@ test("sync never removes anything when the endpoint cannot be read", async (t) =
 
 	const after = written(dir).providers.gw.models.map((m) => m.id);
 	assert.deepEqual(after, before, "an unreachable gateway must not wipe the configuration");
-	assert.match(text(ctx), /endpoint unreadable: ECONNREFUSED/);
-	assert.match(text(ctx), /skipped: sync will not guess/);
-	assert.match(text(ctx), /could not be read/);
+	assert.match(text(ctx), /端点无法读取：ECONNREFUSED/);
+	assert.match(text(ctx), /sync 不做猜测/);
+	assert.match(text(ctx), /无法读取/);
 	// "Already in sync" would be a lie: nothing could be checked.
-	assert.ok(!/already in sync/.test(text(ctx)));
+	assert.ok(!/已经同步/.test(text(ctx)));
 });
 
 test("--yes does not skip the delete confirmation when a UI exists", async (t) => {
@@ -393,9 +393,9 @@ test("--yes does not skip the delete confirmation when a UI exists", async (t) =
 	await syncFlow(ctx, { argv: ["--all", "--yes"], fetchImpl: fakeFetch(["fresh-model"]) });
 
 	assert.equal(asked.length, 1, "--yes must still ask exactly once");
-	assert.match(asked[0], /Remove models/);
+	assert.match(asked[0], /删除模型/);
 	assert.match(asked[0], /gone-model/);
-	assert.match(text(ctx), /Cancelled; nothing was written/);
+	assert.match(text(ctx), /已取消，什么都没写入/);
 	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
 });
 
@@ -407,7 +407,7 @@ test("sync --no-prune keeps models the endpoint stopped listing", async (t) => {
 
 	const models = written(dir).providers.gw.models;
 	assert.deepEqual(models.map((m) => m.id).sort(), ["fresh-model", "gone-model"]);
-	assert.match(text(ctx), /kept \(--no-prune\)/);
+	assert.match(text(ctx), /被保留（--no-prune）/);
 });
 
 test("sync --only limits additions but still prunes", async (t) => {
@@ -425,16 +425,16 @@ test("sync refuses an unknown provider, an unknown --only id and an empty config
 
 	const unknownProvider = scriptCtx();
 	await syncFlow(unknownProvider, { argv: ["nope", "--all"], fetchImpl: fakeFetch(["a"]) });
-	assert.match(text(unknownProvider), /No such provider in models\.json: nope/);
+	assert.match(text(unknownProvider), /models\.json 里没有这个供应商：nope/);
 
 	const unknownModel = scriptCtx();
 	await syncFlow(unknownModel, { argv: ["--only", "typo-model"], fetchImpl: fakeFetch(["a"]) });
-	assert.match(text(unknownModel), /Not offered by any endpoint: typo-model/);
+	assert.match(text(unknownModel), /所有端点都不提供这些模型：typo-model/);
 
 	seed(dir, {});
 	const empty = scriptCtx();
 	await syncFlow(empty, { argv: ["--all"], fetchImpl: fakeFetch([]) });
-	assert.match(text(empty), /no provider entries yet/);
+	assert.match(text(empty), /还没有任何供应商/);
 });
 
 test("sync skips a runtime provider and leaves its static fallback alone", async (t) => {
@@ -446,7 +446,7 @@ test("sync skips a runtime provider and leaves its static fallback alone", async
 	const ctx = scriptCtx();
 	await syncFlow(ctx, { argv: ["--all"], fetchImpl: fakeFetch(["something-else"]) });
 
-	assert.match(text(ctx), /runtime provider; another extension owns its model list/);
+	assert.match(text(ctx), /运行时供应商，模型列表由另一个扩展管理/);
 	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
 });
 
@@ -500,7 +500,7 @@ test("sync still refuses to fill a provider another extension owns", async (t) =
 	await syncFlow(ctx, { argv: ["--all"], fetchImpl: fakeFetch(["live-model"]) });
 
 	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
-	assert.match(text(ctx), /runtime provider/);
+	assert.match(text(ctx), /运行时供应商/);
 });
 
 test("applySync reports when there is genuinely nothing to do", async (t) => {
@@ -518,13 +518,13 @@ test("applySync reports when there is genuinely nothing to do", async (t) => {
 	}
 	const touched = await applySync(ctx, plan, { prune: true });
 	assert.deepEqual(touched, []);
-	assert.match(text(ctx), /already in sync/);
+	assert.match(text(ctx), /已经同步/);
 });
 
 test("sync --help prints the usage", async (t) => {
 	withAgentDir(t);
 	const ctx = scriptCtx();
 	await syncFlow(ctx, { argv: ["--help"] });
-	assert.match(text(ctx), /Usage:/);
+	assert.match(text(ctx), /用法：/);
 	assert.match(text(ctx), /\/model-setup sync/);
 });

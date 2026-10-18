@@ -14,11 +14,11 @@ import { fetchModelMeta, probeKey } from "../probe.js";
 import { diffModel, repairedDef, resolveModelMeta } from "../resolve.js";
 import { isRuntimeProvider, runtimeProviders } from "../user-config.js";
 
-const NONE = "No static model list (models are produced by a refresh or by another extension)";
+const NONE = "没有静态模型列表（由刷新或其他扩展生成）";
 
 export async function planProvider({ pid, provider, official, fetchImpl }) {
-	if (!provider || typeof provider !== "object") return { pid, skipped: "provider missing" };
-	if (!provider.baseUrl) return { pid, skipped: "no baseUrl" };
+	if (!provider || typeof provider !== "object") return { pid, skipped: "provider 缺失" };
+	if (!provider.baseUrl) return { pid, skipped: "没有 baseUrl" };
 	if (!Array.isArray(provider.models) || provider.models.length === 0) return { pid, skipped: NONE };
 
 	// Probe before awaiting models.dev. The two are independent, and the endpoint is
@@ -58,26 +58,26 @@ export async function planProvider({ pid, provider, official, fetchImpl }) {
 export function renderPlan(plan, { runtime = false } = {}) {
 	const lines = [`- ${plan.pid} (${plan.provider.baseUrl})`];
 	if (plan.endpointErr) {
-		lines.push(`    ! endpoint probe failed (${errorMessage(plan.endpointErr)}); reconciled from models.dev / names only`);
+		lines.push(`    ！端点探测失败（${errorMessage(plan.endpointErr)}），仅按 models.dev / 名称对账`);
 	}
 	if (!plan.changes.length && !plan.vanished.length) {
-		lines.push(`    ok ${plan.provider.models.length} model(s) consistent`);
+		lines.push(`    ✓ ${plan.provider.models.length} 个模型参数一致`);
 	} else {
 		for (const c of plan.changes) lines.push(`    ${c.id}: ${c.diffs.join(", ")}`);
 		if (plan.vanished.length) {
-			lines.push(`    ! no longer listed by the endpoint: ${plan.vanished.join(", ")} (kept, not deleted)`);
+			lines.push(`    ！端点已不再提供：${plan.vanished.join("、")}（保留，未删除）`);
 		}
 	}
 	if (runtime) {
-		lines.push(`    i runtime provider: models.json holds only the static fallback, so it is reported but never rewritten`);
+		lines.push(`    ℹ 运行时供应商：models.json 里只是静态兜底，只报告、绝不改写`);
 	}
 	return lines.join("\n");
 }
 
 async function selectTargets(ctx, targets) {
-	const pick = await ctx.ui.select("Check which endpoints?", ["All endpoints", ...targets]);
+	const pick = await ctx.ui.select("检查哪些端点？", ["全部端点", ...targets]);
 	if (pick === undefined) return undefined;
-	return pick === "All endpoints" ? targets : [pick];
+	return pick === "全部端点" ? targets : [pick];
 }
 
 export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
@@ -90,7 +90,7 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 	}
 	const providers = config.providers ?? {};
 	if (!Object.keys(providers).length) {
-		if (!auto) notify(ctx, "models.json has no provider entries yet");
+		if (!auto) notify(ctx, "models.json 里还没有任何供应商");
 		return;
 	}
 
@@ -106,12 +106,12 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 		if (!targets.length) return;
 	} else if (canConsent) {
 		const picked = await selectTargets(ctx, targets);
-		if (picked === undefined) return notify(ctx, "Cancelled");
+		if (picked === undefined) return notify(ctx, "已取消");
 		targets = picked;
 	} else {
 		// print / JSON / RPC mode. Checking everything read-only is still useful, so
 		// do that instead of refusing the whole command.
-		notify(ctx, "No interactive session: reporting every endpoint, writing nothing.", "warning");
+		notify(ctx, "当前不是交互式会话：只报告所有端点，不写入任何内容。", "warning");
 	}
 
 	// models.dev is one request shared by every endpoint, and each endpoint probe is
@@ -126,7 +126,7 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 	const findings = [];
 	for (const plan of plans) {
 		if (plan.skipped) {
-			report.push(`- ${plan.pid}: skipped (${plan.skipped})`);
+			report.push(`- ${plan.pid}：跳过（${plan.skipped}）`);
 			continue;
 		}
 		findings.push(plan);
@@ -135,7 +135,7 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 
 	if (auto && !findings.some((p) => p.changes.length || p.vanished.length)) return;
 
-	notify(ctx, `Model parameter audit:\n${report.join("\n\n")}`);
+	notify(ctx, `模型参数对账：\n${report.join("\n\n")}`);
 
 	const repaired = [];
 	for (const plan of findings) {
@@ -148,9 +148,9 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 			apply = canConsent
 				? Boolean(
 						await ctx.ui.confirm(
-							`Repair ${plan.pid}`,
-							`${plan.changes.length} deviation(s) found. Apply the inferred values?\n` +
-								plan.changes.map((c) => `${c.id}: ${c.diffs.join(", ")}`).join("\n"),
+							`修复 ${plan.pid}`,
+							`发现 ${plan.changes.length} 处参数偏差，按推断值修复吗？\n` +
+								plan.changes.map((c) => `${c.id}: ${c.diffs.join("，")}`).join("\n"),
 						),
 					)
 				: false;
@@ -167,8 +167,8 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 		notify(
 			ctx,
 			canConsent
-				? "Nothing written."
-				: "Nothing written: a repair needs confirmation. Run /model-setup sync --all to apply it, or use an interactive session.",
+				? "什么都没写入。"
+				: "什么都没写入：修复需要确认。要落地请运行 /model-setup sync --all，或在交互式会话里操作。",
 		);
 		return;
 	}
@@ -177,13 +177,13 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 	try {
 		writeJson(modelsJsonPath(), config);
 	} catch (err) {
-		notify(ctx, `Writing models.json failed: ${errorMessage(err)}`, "error");
+		notify(ctx, `写入 models.json 失败：${errorMessage(err)}`, "error");
 		return;
 	}
-	notify(ctx, `Wrote models.json (backup kept) and repaired ${repaired.join(", ")}.`);
+	notify(ctx, `已写入 models.json（保留备份），修复了 ${repaired.join("、")}。`);
 	try {
 		await ctx.modelRegistry.refresh({ providers: repaired });
 	} catch (err) {
-		notify(ctx, `Written, but the registry refresh failed (a restart will load it): ${errorMessage(err)}`, "warning");
+		notify(ctx, `已写入，但注册表刷新失败（重启后会加载）：${errorMessage(err)}`, "warning");
 	}
 }

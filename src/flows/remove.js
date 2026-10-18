@@ -23,53 +23,53 @@ export async function removeFlow(ctx) {
 		return notify(ctx, errorMessage(err), "error");
 	}
 	const ids = Object.keys(config?.providers ?? {});
-	if (!ids.length) return notify(ctx, "models.json has no provider entries to remove");
+	if (!ids.length) return notify(ctx, "models.json 里没有可删除的供应商");
 
-	const target = await ctx.ui.select("Remove which provider?", ids);
-	if (!target) return notify(ctx, "Cancelled");
+	const target = await ctx.ui.select("删除哪个供应商？", ids);
+	if (!target) return notify(ctx, "已取消");
 	const provider = config.providers[target] ?? {};
 
 	if (isRuntimeProvider(target)) {
 		const ok = await ctx.ui.confirm(
-			"Removing a runtime provider",
-			`${target} is managed by another extension, which reads apiKey / baseUrl from this entry. ` +
-				"Removing it takes that credential away and its refresh will fail (it falls back to its static list). Continue?",
+			"正在删除运行时供应商",
+			`${target} 由另一个扩展管理，该扩展从这个条目读取 apiKey / baseUrl。` +
+				"删除后它的凭证就没了，刷新会失败（会退回静态列表）。继续吗？",
 		);
-		if (!ok) return notify(ctx, "Cancelled");
+		if (!ok) return notify(ctx, "已取消");
 	}
 	const confirmed = await ctx.ui.confirm(
-		"Confirm removal",
-		`Remove ${target} (${provider.baseUrl ?? "no baseUrl"}) from models.json? The file is backed up first.`,
+		"确认删除",
+		`从 models.json 删除 ${target}（${provider.baseUrl ?? "无 baseUrl"}）？会先备份原文件。`,
 	);
-	if (!confirmed) return notify(ctx, "Cancelled");
+	if (!confirmed) return notify(ctx, "已取消");
 
 	backupFile(modelsJsonPath());
 	delete config.providers[target];
 	try {
 		writeJson(modelsJsonPath(), config);
 	} catch (err) {
-		return notify(ctx, `Not removed: writing models.json failed (${errorMessage(err)})`, "error");
+		return notify(ctx, `未删除：写入 models.json 失败（${errorMessage(err)}）`, "error");
 	}
 	try {
 		await ctx.modelRegistry.refresh({ providers: [target] });
 	} catch (err) {
-		notify(ctx, `Removed, but the registry refresh failed (a restart will apply it): ${errorMessage(err)}`, "warning");
+		notify(ctx, `已删除，但注册表刷新失败（重启后生效）：${errorMessage(err)}`, "warning");
 	}
-	notify(ctx, `Removed ${target}; models.json was backed up.`);
+	notify(ctx, `已删除 ${target}，models.json 已备份。`);
 
 	const stale = scopedEntriesFor(readSettings(), target);
 	if (stale.length) {
 		notify(
 			ctx,
-			`Note: the /model list is a snapshot taken at session start, so ${target} models may still appear there. ` +
-				"They disappear in a new session or after restarting pi (/reload does not re-resolve the snapshot).",
+			`注意：/model 列表是会话启动时的快照，所以 ${target} 的模型可能还显示在那里。` +
+				"新开会话或重启 pi 后就会消失（/reload 不会重新解析快照）。",
 			"warning",
 		);
-		if (await ctx.ui.confirm("Clean up the list", `Also remove the enabledModels entries for ${target}?`)) {
+		if (await ctx.ui.confirm("清理列表", `同时删除 ${target} 的 enabledModels 条目吗？`)) {
 			removeScopeUpdate(ctx, target);
 		}
 	}
 	if (ctx.model?.provider === target) {
-		notify(ctx, "Warning: this session's model belongs to the provider just removed. Pick another with /model.", "warning");
+		notify(ctx, "警告：当前会话用的模型属于刚删除的供应商，请用 /model 换一个。", "warning");
 	}
 }

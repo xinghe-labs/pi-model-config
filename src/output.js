@@ -21,7 +21,7 @@ export function canPrompt(ctx) {
 // after explaining why, so the caller can bail out.
 export function requireUI(ctx, what) {
 	if (canPrompt(ctx)) return true;
-	notify(ctx, `${what} needs an interactive session; this mode cannot prompt.`, "error");
+	notify(ctx, `${what} 需要交互式会话，当前模式无法弹出对话框。`, "error");
 	return false;
 }
 

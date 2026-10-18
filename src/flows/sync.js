@@ -41,7 +41,7 @@ function uniqueById(list) {
 	return out;
 }
 
-const RUNTIME_SKIP = "runtime provider; another extension owns its model list";
+const RUNTIME_SKIP = "运行时供应商，模型列表由另一个扩展管理";
 
 function emptyRow(plan, extra) {
 	return { ...plan, unreachable: false, runtime: false, added: [], removed: [], changed: [], candidates: [], ...extra };
@@ -66,8 +66,8 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 	const targets = pids && pids.length ? pids : Object.keys(providers);
 
 	const missing = targets.filter((pid) => !providers[pid]);
-	if (missing.length) throw new Error(`No such provider in models.json: ${missing.join(", ")}`);
-	if (!targets.length) throw new Error("models.json has no provider entries yet");
+	if (missing.length) throw new Error(`models.json 里没有这个供应商：${missing.join("、")}`);
+	if (!targets.length) throw new Error("models.json 里还没有任何供应商");
 
 	// One models.dev request shared by every endpoint; each probe runs in parallel
 	// with it (see planProvider).
@@ -140,7 +140,7 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 			}),
 		);
 		const unknown = only.filter((id) => !offered.has(id));
-		if (unknown.length) throw new Error(`Not offered by any endpoint: ${unknown.join(", ")}`);
+		if (unknown.length) throw new Error(`所有端点都不提供这些模型：${unknown.join("、")}`);
 	}
 
 	return { targets, rows, only };
@@ -148,37 +148,37 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 
 export function renderSyncPlan(plan, { prune = true } = {}) {
 	const blocks = plan.rows.map((row) => {
-		if (row.skipped) return `- ${row.pid}: skipped (${row.skipped})`;
-		if (row.runtime) return `- ${row.pid}: skipped (${RUNTIME_SKIP})`;
+		if (row.skipped) return `- ${row.pid}：跳过（${row.skipped}）`;
+		if (row.runtime) return `- ${row.pid}：跳过（${RUNTIME_SKIP}）`;
 		if (row.unreachable) {
 			return (
 				`- ${row.pid} (${row.provider.baseUrl})\n` +
-				`    endpoint unreadable: ${errorMessage(row.endpointErr)}\n` +
-				"    skipped: sync will not guess, and will remove nothing it cannot verify"
+				`    端点无法读取：${errorMessage(row.endpointErr)}\n` +
+				"    已跳过：sync 不做猜测，也绝不删除无法核实的东西"
 			);
 		}
 
 		const lines = [`- ${row.pid} (${row.provider.baseUrl})`];
 		const removed = prune ? row.removed : [];
-		if (row.fillFromEmpty) lines.push("    no model list yet; it will be filled from the endpoint");
+		if (row.fillFromEmpty) lines.push("    该供应商还没有模型列表，将从端点补全");
 		if (row.added.length) {
-			lines.push(`    ${row.added.length} new model(s)`);
+			lines.push(`    ${row.added.length} 个新模型`);
 			lines.push(...row.added.map(describeAdded));
 		}
 		if (removed.length) {
-			lines.push(`    ${removed.length} model(s) the endpoint no longer lists (will be removed)`);
+			lines.push(`    ${removed.length} 个模型端点已不再提供（将删除）`);
 			lines.push(...removed.map((id) => `      - ${id}`));
 		} else if (row.removed.length && !prune) {
-			lines.push(`    ${row.removed.length} gone model(s) kept (--no-prune)`);
+			lines.push(`    ${row.removed.length} 个已下线模型被保留（--no-prune）`);
 		}
 		if (row.changed.length) {
-			lines.push(`    ${row.changed.length} model(s) to repair`);
-			lines.push(...row.changed.map((c) => `      ~ ${c.id}: ${c.diffs.join(", ")}`));
+			lines.push(`    ${row.changed.length} 个模型待修复`);
+			lines.push(...row.changed.map((c) => `      ~ ${c.id}: ${c.diffs.join("，")}`));
 		}
-		if (lines.length === 1) lines.push("    already in sync");
+		if (lines.length === 1) lines.push("    已同步");
 		return lines.join("\n");
 	});
-	return `Model list sync:\n${blocks.join("\n")}`;
+	return `模型列表同步：\n${blocks.join("\n")}`;
 }
 
 function pendingChanges(plan, prune) {
@@ -219,8 +219,8 @@ export async function applySync(ctx, plan, { prune = true } = {}) {
 		notify(
 			ctx,
 			unreadable.length
-				? `Nothing was changed: ${unreadable.map((r) => r.pid).join(", ")} could not be read.`
-				: "Nothing to do: already in sync.",
+				? `什么都没改：${unreadable.map((r) => r.pid).join("、")} 无法读取。`
+				: "没什么可做的：已经同步。",
 		);
 		return [];
 	}
@@ -229,22 +229,22 @@ export async function applySync(ctx, plan, { prune = true } = {}) {
 	try {
 		writeJson(modelsJsonPath(), config);
 	} catch (err) {
-		notify(ctx, `Writing models.json failed: ${errorMessage(err)}`, "error");
+		notify(ctx, `写入 models.json 失败：${errorMessage(err)}`, "error");
 		return [];
 	}
 
 	const summary = pendingChanges(plan, prune)
 		.filter((row) => touched.includes(row.pid))
 		.map((row) => `${row.pid} (+${row.added.length} -${prune ? row.removed.length : 0} ~${row.changed.length})`);
-	notify(ctx, `Wrote models.json (backup kept) and synced ${summary.join(", ")}.`);
+	notify(ctx, `已写入 models.json（保留备份），同步了 ${summary.join("、")}。`);
 
 	try {
 		await ctx.modelRegistry.refresh({ providers: touched });
 	} catch (err) {
-		notify(ctx, `Written, but the registry refresh failed (a restart will load it): ${errorMessage(err)}`, "warning");
+		notify(ctx, `已写入，但注册表刷新失败（重启后会加载）：${errorMessage(err)}`, "warning");
 	}
 	for (const pid of touched) applyScopeUpdate(ctx, pid);
-	notify(ctx, "Use /model to pick a model; a new session may be needed for the list to refresh.");
+	notify(ctx, "用 /model 选择模型；模型列表可能要新会话才会刷新。");
 	return touched;
 }
 
@@ -257,7 +257,7 @@ export async function syncFlow(ctx, { argv, fetchImpl = fetch } = {}) {
 	try {
 		plan = await planSync({ pids: options.positional, only: onlyIds(options), fetchImpl });
 	} catch (err) {
-		return notify(ctx, `sync failed: ${errorMessage(err)}`, "error");
+		return notify(ctx, `sync 失败：${errorMessage(err)}`, "error");
 	}
 
 	notify(ctx, renderSyncPlan(plan, { prune }));
@@ -265,7 +265,7 @@ export async function syncFlow(ctx, { argv, fetchImpl = fetch } = {}) {
 	if (!wantsWrite(options)) {
 		notify(
 			ctx,
-			"Nothing was written. Re-run with --all to apply every change, or --only <ids> to add just those models.",
+			"什么都没写入。加 --all 应用全部改动，或加 --only <ids> 只添加这些模型。",
 		);
 		return plan;
 	}
@@ -277,11 +277,11 @@ export async function syncFlow(ctx, { argv, fetchImpl = fetch } = {}) {
 		: [];
 	if (doomed.length && ctx?.hasUI && typeof ctx.ui?.confirm === "function") {
 		const ok = await ctx.ui.confirm(
-			"Remove models",
-			`The endpoint no longer lists:\n${doomed.map((row) => `${row.pid}: ${row.removed.join(", ")}`).join("\n")}\n\n` +
-				"Remove them from models.json? (backed up first)",
+			"删除模型",
+			`以下模型端点已不再提供：\n${doomed.map((row) => `${row.pid}：${row.removed.join("、")}`).join("\n")}\n\n` +
+				"要从 models.json 里删除吗？（会先备份）",
 		);
-		if (!ok) return notify(ctx, "Cancelled; nothing was written.");
+		if (!ok) return notify(ctx, "已取消，什么都没写入。");
 	}
 
 	return applySync(ctx, plan, { prune });

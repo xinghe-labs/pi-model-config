@@ -94,7 +94,7 @@ test("planProvider reports nothing when the entry already matches", async () => 
 	assert.deepEqual(plan.changes, []);
 	// No endpoint list means "cannot tell", so nothing is reported as vanished.
 	assert.deepEqual(plan.vanished, []);
-	assert.match(renderPlan(plan), /ok 1 model\(s\) consistent/);
+	assert.match(renderPlan(plan), /✓ 1 个模型参数一致/);
 });
 
 test("planProvider proposes a repair from models.dev when the probe fails", async () => {
@@ -117,7 +117,7 @@ test("planProvider proposes a repair from models.dev when the probe fails", asyn
 	assert.deepEqual(plan.newModels[0].contextWindow, 200000);
 	// The original array is untouched: the plan is computed, not applied.
 	assert.equal(provider.models[0].contextWindow, 128000);
-	assert.match(renderPlan(plan), /endpoint probe failed \(offline\)/);
+	assert.match(renderPlan(plan), /端点探测失败（offline）/);
 });
 
 test("planProvider never deletes a model the endpoint stopped listing", async () => {
@@ -132,15 +132,15 @@ test("planProvider never deletes a model the endpoint stopped listing", async ()
 	const plan = await planProvider({ pid: "p", provider, official, fetchImpl: endpoint([{ id: "glm-5.3" }]) });
 	assert.deepEqual(plan.vanished, ["retired-model"]);
 	assert.equal(plan.newModels.length, 2, "a vanished model is reported, never dropped");
-	assert.match(renderPlan(plan), /no longer listed by the endpoint: retired-model \(kept, not deleted\)/);
+	assert.match(renderPlan(plan), /端点已不再提供：retired-model（保留，未删除）/);
 });
 
 test("planProvider skips what it cannot inspect", async () => {
 	const skipped = async (provider) => (await planProvider({ pid: "p", provider, official, fetchImpl: endpoint([]) })).skipped;
-	assert.equal(await skipped(undefined), "provider missing");
-	assert.equal(await skipped({ api: "openai-completions" }), "no baseUrl");
-	assert.equal(await skipped({ baseUrl: "https://x/v1", models: [] }), "No static model list (models are produced by a refresh or by another extension)");
-	assert.equal(await skipped({ baseUrl: "https://x/v1" }), "No static model list (models are produced by a refresh or by another extension)");
+	assert.equal(await skipped(undefined), "provider 缺失");
+	assert.equal(await skipped({ api: "openai-completions" }), "没有 baseUrl");
+	assert.equal(await skipped({ baseUrl: "https://x/v1", models: [] }), "没有静态模型列表（由刷新或其他扩展生成）");
+	assert.equal(await skipped({ baseUrl: "https://x/v1" }), "没有静态模型列表（由刷新或其他扩展生成）");
 });
 
 test("planProvider ignores malformed model entries", async () => {
@@ -158,7 +158,7 @@ test("renderPlan flags a runtime provider", () => {
 		vanished: [],
 		endpointErr: undefined,
 	};
-	assert.match(renderPlan(plan, { runtime: true }), /runtime provider: models\.json holds only the static fallback/);
+	assert.match(renderPlan(plan, { runtime: true }), /运行时供应商：models\.json 里只是静态兜底/);
 });
 
 test("renderProviderList masks keys and labels runtime providers", () => {
@@ -169,11 +169,11 @@ test("renderProviderList masks keys and labels runtime providers", () => {
 		},
 		{ runtime: new Set(["b"]) },
 	);
-	assert.match(text, /models\.json providers \(2\)/);
-	assert.match(text, /a\n {4}https:\/\/a\/v1 {2}\| {2}api=openai-completions {2}\| {2}key=sk-000…0000 {2}\| {2}2 model\(s\)/);
-	assert.match(text, /b \(runtime provider; no key\)/);
-	assert.match(text, /inherits \/ overrides existing models/);
-	assert.equal(renderProviderList({}), "models.json has no provider entries yet.");
+	assert.match(text, /models\.json 里的供应商（共 2 个）/);
+	assert.match(text, /a\n {4}https:\/\/a\/v1 {2}\| {2}api=openai-completions {2}\| {2}key=sk-000…0000 {2}\| {2}2 个模型/);
+	assert.match(text, /b（运行时供应商；无 Key）/);
+	assert.match(text, /继承 \/ 覆盖已有模型/);
+	assert.equal(renderProviderList({}), "models.json 里还没有任何供应商。");
 });
 
 test("readUserConfig defaults to no runtime providers", (t) => {
@@ -265,6 +265,6 @@ test("canPrompt and requireUI gate dialog-only flows", (t) => {
 		process.stderr.write = originalErr;
 	});
 	assert.equal(requireUI({ hasUI: false }, "add"), false);
-	assert.match(writes.join(""), /add needs an interactive session/);
+	assert.match(writes.join(""), /add 需要交互式会话/);
 	assert.equal(requireUI({ hasUI: true, ui: { select: () => {} } }, "add"), true);
 });

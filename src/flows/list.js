@@ -6,19 +6,19 @@ import { isRuntimeProvider, runtimeProviders } from "../user-config.js";
 
 export function renderProviderList(providers, { runtime = new Set() } = {}) {
 	const ids = Object.keys(providers);
-	if (!ids.length) return "models.json has no provider entries yet.";
+	if (!ids.length) return "models.json 里还没有任何供应商。";
 	const lines = ids.map((id) => {
 		const p = providers[id] ?? {};
-		const models = Array.isArray(p.models) ? `${p.models.length} model(s)` : "inherits / overrides existing models";
+		const models = Array.isArray(p.models) ? `${p.models.length} 个模型` : "继承 / 覆盖已有模型";
 		const flags = [];
-		if (isRuntimeProvider(id, runtime)) flags.push("runtime provider");
-		if (p.apiKey === "none") flags.push("no key");
+		if (isRuntimeProvider(id, runtime)) flags.push("运行时供应商");
+		if (p.apiKey === "none") flags.push("无 Key");
 		return (
-			`- ${id}${flags.length ? ` (${flags.join("; ")})` : ""}\n` +
-			`    ${p.baseUrl ?? "(no baseUrl)"}  |  api=${p.api ?? "(default)"}  |  key=${maskKey(p.apiKey)}  |  ${models}`
+			`- ${id}${flags.length ? `（${flags.join("；")}）` : ""}\n` +
+			`    ${p.baseUrl ?? "（无 baseUrl）"}  |  api=${p.api ?? "（默认）"}  |  key=${maskKey(p.apiKey)}  |  ${models}`
 		);
 	});
-	return `models.json providers (${ids.length}):\n${lines.join("\n")}`;
+	return `models.json 里的供应商（共 ${ids.length} 个）：\n${lines.join("\n")}`;
 }
 
 export async function listFlow(ctx) {

@@ -140,7 +140,7 @@ test("addFlow writes a provider with inferred metadata, cost and a backup", asyn
 		"https://api.anthropic.com/v1", // base URL
 		"anthropic-messages", // API type (bare value, not the label)
 		"sk-" + "a".repeat(40), // API key
-		"Add all of them", // how to add the probed models
+		"全部添加", // how to add the probed models
 		"", // provider id -> accept the suggestion
 	]);
 	await addFlow(ctx, { fetchImpl: fakeFetch([{ id: "claude-opus-4-6" }]) });
@@ -165,7 +165,7 @@ test("addFlow writes a provider with inferred metadata, cost and a backup", asyn
 
 	assert.ok(fs.readdirSync(dir).some((f) => f.startsWith("models.json.bak-")), "a backup must be written");
 	const text = notifies(ctx);
-	assert.match(text, /Configured api-anthropic-com: 1 model/);
+	assert.match(text, /已配置 api-anthropic-com：1 个模型/);
 	assert.match(text, /ctx=1000000 \(models\.dev\)/);
 	// The key must never be echoed in full.
 	assert.ok(!text.includes("a".repeat(40)));
@@ -187,24 +187,24 @@ test("addFlow probes, then falls back to typed IDs when the probe fails", async 
 	const provider = JSON.parse(fs.readFileSync(path.join(dir, "models.json"), "utf8")).providers.local;
 	assert.equal(provider.apiKey, "none", 'the literal "none" is how models.json spells "no key"');
 	assert.deepEqual(provider.models.map((m) => m.id), ["my-model", "other-model"]);
-	assert.match(notifies(ctx), /Probe failed \(HTTP 500\)/);
+	assert.match(notifies(ctx), /探测失败（HTTP 500）/);
 });
 
 test("addFlow refuses an invalid URL and a bad provider id", async (t) => {
 	withAgentDir(t);
 	const badUrl = fakeCtx(["not-a-url"]);
 	await addFlow(badUrl, { fetchImpl: fakeFetch([]) });
-	assert.match(notifies(badUrl), /Not a URL: not-a-url/);
+	assert.match(notifies(badUrl), /不是有效的 URL：not-a-url/);
 
-	const badId = fakeCtx(["https://api.example.com/v1", "openai-completions", "", "Add all of them", "bad id!"]);
+	const badId = fakeCtx(["https://api.example.com/v1", "openai-completions", "", "全部添加", "bad id!"]);
 	await addFlow(badId, { fetchImpl: fakeFetch([{ id: "m" }]) });
-	assert.match(notifies(badId), /Provider id may only contain/);
+	assert.match(notifies(badId), /供应商 id 只能包含/);
 });
 
 test("addFlow stops before writing when models.json is unparseable", async (t) => {
 	const dir = withAgentDir(t);
 	fs.writeFileSync(path.join(dir, "models.json"), "{ broken");
-	const ctx = fakeCtx(["https://api.example.com/v1", "openai-completions", "k", "Add all of them", "p"]);
+	const ctx = fakeCtx(["https://api.example.com/v1", "openai-completions", "k", "全部添加", "p"]);
 	await addFlow(ctx, { fetchImpl: fakeFetch([{ id: "m" }]) });
 	assert.match(notifies(ctx), /could not be parsed/);
 	// The unreadable file must be left exactly as it was.
@@ -215,7 +215,7 @@ test("addFlow needs a UI", async (t) => {
 	withAgentDir(t);
 	const ctx = fakeCtx([], { ui: false });
 	const output = await captureStreams(() => addFlow(ctx));
-	assert.match(output, /add needs an interactive session/);
+	assert.match(output, /add 需要交互式会话/);
 });
 
 test("addFlow warns when the id is a configured runtime provider", async (t) => {
@@ -225,11 +225,11 @@ test("addFlow warns when the id is a configured runtime provider", async (t) => 
 		"https://api.example.com/v1",
 		"openai-completions",
 		"k",
-		"Add all of them",
+		"全部添加",
 		"runtime-one",
 	]);
 	await addFlow(ctx, { fetchImpl: fakeFetch([{ id: "m" }]) });
-	assert.match(notifies(ctx), /listed as a runtime provider/);
+	assert.match(notifies(ctx), /是运行时供应商/);
 	// Still written: the warning is advice, not a veto.
 	assert.ok(JSON.parse(fs.readFileSync(path.join(dir, "models.json"), "utf8")).providers["runtime-one"]);
 });
@@ -237,7 +237,7 @@ test("addFlow warns when the id is a configured runtime provider", async (t) => 
 test("addFlow adds the provider to a non-empty enabledModels", async (t) => {
 	const dir = withAgentDir(t);
 	fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ enabledModels: ["other/*"] }));
-	const ctx = fakeCtx(["https://api.example.com/v1", "openai-completions", "k", "Add all of them", "fresh"]);
+	const ctx = fakeCtx(["https://api.example.com/v1", "openai-completions", "k", "全部添加", "fresh"]);
 	await addFlow(ctx, { fetchImpl: fakeFetch([{ id: "m" }]) });
 	const settings = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8"));
 	assert.deepEqual(settings.enabledModels, ["other/*", "fresh/*"]);
@@ -249,7 +249,7 @@ test("addFlow adds the provider to a non-empty enabledModels", async (t) => {
 test("addFlow leaves an empty enabledModels alone", async (t) => {
 	const dir = withAgentDir(t);
 	fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ enabledModels: [] }));
-	const ctx = fakeCtx(["https://api.example.com/v1", "openai-completions", "k", "Add all of them", "fresh"]);
+	const ctx = fakeCtx(["https://api.example.com/v1", "openai-completions", "k", "全部添加", "fresh"]);
 	await addFlow(ctx, { fetchImpl: fakeFetch([{ id: "m" }]) });
 	assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).enabledModels, []);
 });
@@ -268,7 +268,7 @@ test("checkFlow repairs a deviating entry and re-runs clean afterwards", async (
 			},
 		}),
 	);
-	const ctx = fakeCtx(["All endpoints", true]);
+	const ctx = fakeCtx(["全部端点", true]);
 	await checkFlow(ctx, { fetchImpl: fakeFetch([]) });
 
 	const model = JSON.parse(fs.readFileSync(path.join(dir, "models.json"), "utf8")).providers.p.models[0];
@@ -279,9 +279,9 @@ test("checkFlow repairs a deviating entry and re-runs clean afterwards", async (
 	assert.ok(fs.readdirSync(dir).some((f) => f.startsWith("models.json.bak-")));
 
 	// The audit must converge: a second pass finds nothing to repair.
-	const second = fakeCtx(["All endpoints"]);
+	const second = fakeCtx(["全部端点"]);
 	await checkFlow(second, { fetchImpl: fakeFetch([]) });
-	assert.match(notifies(second), /ok 1 model\(s\) consistent/);
+	assert.match(notifies(second), /✓ 1 个模型参数一致/);
 });
 
 test("checkFlow never repairs a configured runtime provider", async (t) => {
@@ -297,10 +297,10 @@ test("checkFlow never repairs a configured runtime provider", async (t) => {
 		},
 	};
 	fs.writeFileSync(path.join(dir, "models.json"), JSON.stringify(original));
-	const ctx = fakeCtx(["All endpoints"]);
+	const ctx = fakeCtx(["全部端点"]);
 	await checkFlow(ctx, { fetchImpl: fakeFetch([]) });
 	assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "models.json"), "utf8")), original);
-	assert.match(notifies(ctx), /reported but never rewritten/);
+	assert.match(notifies(ctx), /只报告、绝不改写/);
 });
 
 test("the startup audit stays silent when nothing deviates", async (t) => {
@@ -348,7 +348,7 @@ test("the startup audit does repair a real deviation and says so", async (t) => 
 	);
 	const ctx = fakeCtx([], { ui: false });
 	const output = await captureStreams(() => checkFlow(ctx, { auto: true, fetchImpl: fakeFetch([]) }));
-	assert.match(output, /Model parameter audit/);
+	assert.match(output, /模型参数对账/);
 	const model = JSON.parse(fs.readFileSync(path.join(dir, "models.json"), "utf8")).providers.p.models[0];
 	assert.equal(model.contextWindow, 1000000);
 });
@@ -377,8 +377,8 @@ test("removeFlow deletes the provider, keeps a backup and offers the list cleanu
 	assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8")).enabledModels, ["kept/*"]);
 	assert.ok(fs.readdirSync(dir).some((f) => f.startsWith("models.json.bak-")));
 	// The stale-snapshot warning must be shown: the picker keeps the old entry.
-	assert.match(notifies(ctx), /still appear there/);
-	assert.match(notifies(ctx), /does not re-resolve the snapshot/);
+	assert.match(notifies(ctx), /可能还显示在那里/);
+	assert.match(notifies(ctx), /不会重新解析快照/);
 });
 
 test("removeFlow needs a UI and does nothing when cancelled", async (t) => {
