@@ -1,0 +1,107 @@
+// models.dev: fetch once, keep only what is needed, cache with two TTLs.
+//
+// The full api.json is several MB and mostly irrelevant, so only a
+// `short name -> capabilities` map is stored. A failure is cached for a much
+// shorter time than a success: offline, every add / check / startup would
+// otherwise wait out a 15s timeout before falling back to heuristics.
+import fs from "node:fs";
+import {
+	MODELS_DEV_CACHE_VERSION,
+	MODELS_DEV_RETRY_MS,
+	MODELS_DEV_TIMEOUT_MS,
+	MODELS_DEV_TTL_MS,
+	MODELS_DEV_URL,
+	PROBE_UA,
+	UPSTREAM_BY_PREFIX,
+} from "./const.js";
+import { shortModelName } from "./infer.js";
+import { readFileIfExists, writeJson } from "./json-file.js";
+import { agentDir, officialCachePath } from "./paths.js";
+
+export function normalizeOfficialModel(m) {
+	const efforts = [];
+	for (const opt of Array.isArray(m?.reasoning_options) ? m.reasoning_options : []) {
+		if (opt?.type === "effort" && Array.isArray(opt.values)) efforts.push(...opt.values);
+	}
+	const ctx = m?.limit?.context;
+	const out = m?.limit?.output;
+	return {
+		context: Number.isInteger(ctx) && ctx > 0 ? ctx : undefined,
+		output: Number.isInteger(out) && out > 0 ? out : undefined,
+		reasoning: m?.reasoning === true,
+		image: Array.isArray(m?.modalities?.input) && m.modalities.input.includes("image"),
+		efforts: [...new Set(efforts)],
+	};
+}
+
+// Keep short names only. An entry from the provider that actually makes the model
+// goes to `primary` and overwrites anything else; every other provider can only
+// fill in a name that no first-party entry claimed.
+export function extractOfficial(data) {
+	const primary = {};
+	const secondary = {};
+	for (const [pid, provider] of Object.entries(data ?? {})) {
+		const models = provider?.models;
+		if (!models || typeof models !== "object") continue;
+		for (const [mid, m] of Object.entries(models)) {
+			const key = shortModelName(mid);
+			if (!key) continue;
+			const expected = UPSTREAM_BY_PREFIX.find(([re]) => re.test(key))?.[1];
+			if (pid === expected) {
+				primary[key] = normalizeOfficialModel(m);
+			} else if (!secondary[key]) {
+				secondary[key] = normalizeOfficialModel(m);
+			}
+		}
+	}
+	return { ...secondary, ...primary };
+}
+
+export function readOfficialCache() {
+	const raw = readFileIfExists(officialCachePath());
+	if (raw === undefined) return undefined;
+	try {
+		const parsed = JSON.parse(raw);
+		if (parsed?.official && typeof parsed.fetchedAt === "number" && parsed.version === MODELS_DEV_CACHE_VERSION) {
+			return parsed;
+		}
+	} catch {
+		/* a corrupt cache is the same as no cache */
+	}
+	return undefined;
+}
+
+export function writeOfficialCache(payload) {
+	try {
+		fs.mkdirSync(agentDir(), { recursive: true });
+		writeJson(officialCachePath(), payload);
+	} catch {
+		/* a cache write failure must not break the caller */
+	}
+}
+
+// `fetchImpl` is injectable so tests never touch the network.
+export async function loadOfficialData({ fetchImpl = fetch, now = () => Date.now() } = {}) {
+	const cached = readOfficialCache();
+	const ttl = cached?.ok === false ? MODELS_DEV_RETRY_MS : MODELS_DEV_TTL_MS;
+	if (cached && now() - cached.fetchedAt < ttl) return cached.official;
+	try {
+		const res = await fetchImpl(MODELS_DEV_URL, {
+			headers: { "User-Agent": PROBE_UA },
+			signal: AbortSignal.timeout(MODELS_DEV_TIMEOUT_MS),
+		});
+		if (!res.ok) throw new Error(`HTTP ${res.status}`);
+		const official = extractOfficial(await res.json());
+		if (Object.keys(official).length) {
+			writeOfficialCache({ version: MODELS_DEV_CACHE_VERSION, fetchedAt: now(), ok: true, official });
+			return official;
+		}
+	} catch {
+		/* offline or malformed: fall through to the last good data */
+	}
+	// Record the failure but keep the previous successful payload, so a transient
+	// outage downgrades to stale data instead of to nothing.
+	const official = cached?.official ?? {};
+	writeOfficialCache({ version: MODELS_DEV_CACHE_VERSION, fetchedAt: now(), ok: false, official });
+	return official;
+}

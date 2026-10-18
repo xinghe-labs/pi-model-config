@@ -1,0 +1,218 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    # Every flow reaches the network. The probes all carry timeouts, but a job that
+    # can hang for the 6-hour default would hide exactly the failure this package
+    # exists to make visible.
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Syntax check every source file
+        run: npm run lint
+      - name: Unit tests
+        run: node --test
+
+  manifest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Manifest declares the extension entry
+        run: |
+          node -e "
+          const fs = require('fs');
+          const pkg = require('./package.json');
+          if (!pkg.keywords.includes('pi-package')) throw new Error('missing pi-package keyword');
+          const entries = pkg.pi?.extensions ?? [];
+          if (!entries.length) throw new Error('pi.extensions is empty');
+          for (const e of entries) {
+            if (!fs.existsSync(e.replace(/^\.\//, ''))) throw new Error('missing entry: ' + e);
+          }
+          if (!pkg.files.includes('src/')) throw new Error('files[] would exclude the source');
+          // The extension imports every module, so a file left out of files[] is a
+          // crash on install that no test in the repo can catch.
+          const walk = (dir) =>
+            fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+              e.isDirectory() ? walk(dir + '/' + e.name) : [dir + '/' + e.name],
+            );
+          for (const f of walk('src')) {
+            if (!pkg.files.some((g) => g.endsWith('/') && f.startsWith(g))) {
+              throw new Error('files[] does not cover ' + f);
+            }
+          }
+          if (!pkg.files.includes('README.zh-CN.md')) throw new Error('files[] would exclude README.zh-CN.md');
+          // A runtime dependency would have to be installed before pi could load the
+          // extension; this package deliberately has none.
+          if (Object.keys(pkg.dependencies ?? {}).length) throw new Error('unexpected runtime dependency');
+          console.log('manifest ok');
+          "
+      - name: Packed tarball contains every module
+        shell: bash
+        run: |
+          # pipefail: without it the pipeline reports tee's status and a failed pack
+          # would sail through to the greps.
+          set -o pipefail
+          npm pack --dry-run 2>&1 | tee pack.log
+          grep -q 'src/index.js' pack.log
+          grep -q 'src/flows/add.js' pack.log
+          grep -q 'src/flows/check.js' pack.log
+          grep -q 'README.zh-CN.md' pack.log
+          # models.json holds plaintext keys, so nothing resembling one may ship.
+          if grep -qE 'models\.json$' pack.log; then echo 'models.json would be published'; exit 1; fi
+          if grep -qE '\.bak-' pack.log; then echo 'a backup file would be published'; exit 1; fi
+      # A file list is not proof that the published artifact works: a missing
+      # relative import shows up only when the tarball is unpacked and executed.
+      - name: Packed tarball actually runs a full add
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm pack 2>/dev/null
+          # Absolute before changing directory, and in Windows form on Windows: npm
+          # and Node are native binaries, bash is not.
+          tarball="$PWD/$(ls pi-model-config-*.tgz)"
+          if command -v cygpath >/dev/null 2>&1; then tarball=$(cygpath -w "$tarball"); fi
+          root=$(mktemp -d)
+          if command -v cygpath >/dev/null 2>&1; then root=$(cygpath -w "$root"); fi
+          cd "$root"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund "$tarball" >/dev/null
+          node --input-type=module -e "
+          import fs from 'node:fs';
+          import path from 'node:path';
+          import { pathToFileURL } from 'node:url';
+
+          const agent = process.cwd() + '/agent';
+          fs.mkdirSync(agent, { recursive: true });
+          process.env.PI_CODING_AGENT_DIR = agent;
+          // Pre-existing content, for two reasons: a backup is only written when the
+          // file exists (a missing file must not produce one), and a provider that
+          // was already configured must survive the add.
+          fs.writeFileSync(path.join(agent, 'models.json'), '{"providers":{"keep":{"baseUrl":"https://k.example.com/v1"}}}');
+
+          const entry = pathToFileURL('./node_modules/pi-model-config/src/index.js').href;
+
+          // The extension entry: both command names must register the same handler,
+          // because a divergent alias only shows up when a user types the old name.
+          const mod = await import(entry);
+          if (typeof mod.default !== 'function') throw new Error('entry does not export a function');
+          const commands = [];
+          mod.default({ registerCommand: (name, def) => commands.push({ name, def }), on: () => {} });
+          const names = commands.map((c) => c.name).sort();
+          if (names.join(',') !== 'model-config,model-setup') throw new Error('unexpected commands: ' + names.join(','));
+          for (const c of commands) {
+            if (typeof c.def.handler !== 'function') throw new Error('command has no handler: ' + c.name);
+            if (!c.def.description) throw new Error('command has no description: ' + c.name);
+          }
+          if (commands[0].def.handler !== commands[1].def.handler) throw new Error('the alias has its own handler');
+
+          // A real flow against a scripted UI, with models.dev answering empty and
+          // the endpoint answering one model. Nothing here touches the network.
+          const key = 'sk-' + 'z'.repeat(40);
+          const answers = [
+            'https://gw.example.com/v1',
+            'openai-completions',
+            key,
+            'Add all of them',
+            'gw',
+          ];
+          const log = [];
+          const ctx = {
+            hasUI: true,
+            modelRegistry: { refresh: async () => {} },
+            ui: {
+              input: async () => answers.shift(),
+              select: async () => answers.shift(),
+              confirm: async () => answers.shift(),
+              notify: (text, level) => log.push({ text, level }),
+            },
+          };
+          const fetchImpl = async (url) => {
+            if (String(url).includes('models.dev')) return { ok: true, json: async () => ({}) };
+            return {
+              ok: true,
+              json: async () => ({
+                data: [{ id: 'some-model', context_length: 250000, max_completion_tokens: 64000, supported_parameters: ['reasoning'] }],
+              }),
+            };
+          };
+
+          const { addFlow } = await import('./node_modules/pi-model-config/src/flows/add.js');
+          await addFlow(ctx, { fetchImpl });
+
+          const written = JSON.parse(fs.readFileSync(path.join(agent, 'models.json'), 'utf8'));
+          if (written.providers.keep?.baseUrl !== 'https://k.example.com/v1') {
+            throw new Error('an existing provider was not preserved');
+          }
+          const provider = written.providers.gw;
+          if (!provider) throw new Error('provider was not written');
+          if (provider.apiKey !== key) throw new Error('the key was not stored');
+          const model = provider.models[0];
+          if (model.id !== 'some-model') throw new Error('wrong model written: ' + model.id);
+          if (model.contextWindow !== 250000) throw new Error('endpoint ctx was not used: ' + model.contextWindow);
+          if (!model.cost) throw new Error('cost is missing; pi-ai throws without it');
+          if (!fs.readdirSync(agent).some((f) => f.startsWith('models.json.bak-'))) {
+            throw new Error('no backup was written over an existing models.json');
+          }
+          const output = log.map((e) => e.text).join('\n');
+          // The key is stored in plaintext by design, but it must never be echoed.
+          if (output.includes(key)) throw new Error('the API key was printed back');
+          if (!output.includes('ctx=250000')) throw new Error('the report does not show the field sources');
+
+          // check must converge: with the same sources it has nothing left to repair.
+          const { checkFlow } = await import('./node_modules/pi-model-config/src/flows/check.js');
+          const before = fs.readFileSync(path.join(agent, 'models.json'), 'utf8');
+          await checkFlow({ hasUI: false, ui: {} }, { auto: true, fetchImpl });
+          if (fs.readFileSync(path.join(agent, 'models.json'), 'utf8') !== before) {
+            throw new Error('the audit rewrote an entry that already matched');
+          }
+          console.log('packed extension: add + idempotent audit ok');
+          "
+      - name: The startup audit writes nothing when there is nothing to fix
+        shell: bash
+        run: |
+          # A silent startup path that misreports is the worst kind of bug: it is the
+          # one path a user never asked for and cannot see.
+          node --input-type=module -e "
+          import fs from 'node:fs';
+          import os from 'node:os';
+          import path from 'node:path';
+
+          const agent = fs.mkdtempSync(path.join(os.tmpdir(), 'pmc-ci-'));
+          process.env.PI_CODING_AGENT_DIR = agent;
+          // An unparseable file must abort the audit, not be overwritten.
+          fs.writeFileSync(path.join(agent, 'models.json'), '{ broken');
+          const { checkFlow } = await import('./src/flows/check.js');
+          await checkFlow({ hasUI: false, ui: {} }, { auto: true, fetchImpl: async () => ({ ok: false, status: 500 }) });
+          if (fs.readFileSync(path.join(agent, 'models.json'), 'utf8') !== '{ broken') {
+            throw new Error('the audit modified a file it could not parse');
+          }
+          if (fs.readdirSync(agent).some((f) => f.includes('bak-'))) {
+            throw new Error('the audit created a backup without writing');
+          }
+          fs.rmSync(agent, { recursive: true, force: true });
+          console.log('startup audit is inert on a corrupt file');
+          "

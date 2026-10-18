@@ -1,0 +1,25 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.3.7/schema.json",
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"style": {
+				"noNestedTernary": "off",
+				"noNegationElse": "off",
+				"useTemplate": "off"
+			},
+			"suspicious": {
+				"noControlCharactersInRegex": "off",
+				"noTemplateCurlyInString": "off"
+			},
+			"correctness": {
+				"noUnusedFunctionParameters": "off"
+			},
+			"complexity": {
+				"noUselessEscapeInRegex": "off",
+				"useOptionalChain": "off"
+			}
+		}
+	}
+}

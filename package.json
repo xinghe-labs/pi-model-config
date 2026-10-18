@@ -1,0 +1,46 @@
+{
+	"name": "pi-model-config",
+	"version": "0.1.0",
+	"description": "Add a Pi model endpoint in five answers. Context window, output limit, reasoning, vision and thinking levels are inferred from the endpoint itself, then from models.dev, then from the model name — and can be re-audited later.",
+	"type": "module",
+	"license": "MIT",
+	"author": "xinghe-labs",
+	"engines": {
+		"node": ">=20"
+	},
+	"keywords": [
+		"pi-package",
+		"pi-coding-agent",
+		"pi",
+		"extension",
+		"models",
+		"provider",
+		"model-config",
+		"openai-compatible",
+		"ollama",
+		"gateway"
+	],
+	"pi": {
+		"extensions": [
+			"./src/index.js"
+		]
+	},
+	"files": [
+		"src/",
+		"README.md",
+		"README.zh-CN.md",
+		"LICENSE"
+	],
+	"scripts": {
+		"test": "node --test",
+		"lint": "node scripts/lint.js"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/xinghe-labs/pi-model-config.git"
+	},
+	"bugs": {
+		"url": "https://github.com/xinghe-labs/pi-model-config/issues"
+	},
+	"homepage": "https://github.com/xinghe-labs/pi-model-config#readme"
+}

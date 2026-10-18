@@ -1,0 +1,15 @@
+node_modules/
+*.log
+.DS_Store
+.pi/
+
+# npm pack leaves these in the repo root; a committed tarball would be
+# published inside the next tarball.
+*.tgz
+pack.log
+
+# Never commit a real models.json: it holds API keys in plaintext. Tests build
+# their own fixtures under a temp directory instead.
+models.json
+models.json.bak*
+*.bak-[0-9]*

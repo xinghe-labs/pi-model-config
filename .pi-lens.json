@@ -1,0 +1,8 @@
+{
+	"$schema": "https://raw.githubusercontent.com/apmantza/pi-lens/master/docs/schema/pi-lens-config-v1.json",
+	"rules": {
+		"nested-ternary-js": { "disable": ["nested-ternary-js"] },
+		"no-flag-argument-js": { "disable": ["no-flag-argument-js"] },
+		"prefer-at-js": { "disable": ["prefer-at-js"] }
+	}
+}
