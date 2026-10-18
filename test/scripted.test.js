@@ -464,6 +464,45 @@ test("sync repairs drifting parameters without touching the model list", async (
 	assert.equal(model.reasoning, true);
 });
 
+test("sync writes one entry per model even when the endpoint repeats an id", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([]) });
+	await syncFlow(scriptCtx(), { argv: ["--all"], fetchImpl: fakeFetch(["dup", "dup", "other"]) });
+
+	const ids = written(dir).providers.gw.models.map((m) => m.id);
+	assert.deepEqual(ids, ["dup", "other"], "a repeated id must not become two identical entries");
+});
+
+test("sync fills a provider that has no model list at all", async (t) => {
+	// Hand-writing { baseUrl, api, apiKey } and asking sync to populate it is the
+	// obvious use of the command; `check` skips such a provider by design.
+	const dir = withAgentDir(t);
+	seed(dir, {
+		blank: { baseUrl: "https://gw.example.com/v1", api: "openai-completions", apiKey: "sk-test", models: [] },
+		absent: { baseUrl: "https://gw.example.com/v1", api: "openai-completions", apiKey: "sk-test" },
+	});
+	await syncFlow(scriptCtx(), { argv: ["--all"], fetchImpl: fakeFetch(["m1", "m2"]) });
+
+	for (const pid of ["blank", "absent"]) {
+		const models = written(dir).providers[pid].models;
+		assert.deepEqual(models.map((m) => m.id), ["m1", "m2"], `${pid} was not filled`);
+		assert.deepEqual(models[0].cost, ZERO, "a filled model still carries cost");
+	}
+});
+
+test("sync still refuses to fill a provider another extension owns", async (t) => {
+	const dir = withAgentDir(t);
+	fs.writeFileSync(path.join(dir, "model-config.json"), JSON.stringify({ runtimeProviders: ["me"] }));
+	seed(dir, { me: { baseUrl: "https://gw.example.com/v1", api: "openai-completions", apiKey: "k", models: [] } });
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+
+	const ctx = scriptCtx();
+	await syncFlow(ctx, { argv: ["--all"], fetchImpl: fakeFetch(["live-model"]) });
+
+	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
+	assert.match(text(ctx), /runtime provider/);
+});
+
 test("applySync reports when there is genuinely nothing to do", async (t) => {
 	const dir = withAgentDir(t);
 	seed(dir, {

@@ -22,10 +22,30 @@ import { backupFile, readModelsConfig, writeJson } from "../json-file.js";
 import { loadOfficialData } from "../official.js";
 import { errorMessage, notify } from "../output.js";
 import { modelsJsonPath } from "../paths.js";
+import { fetchModelMeta, probeKey } from "../probe.js";
 import { SOURCE_LABEL, resolveModelMeta } from "../resolve.js";
 import { applyScopeUpdate } from "../scope.js";
 import { isRuntimeProvider, runtimeProviders } from "../user-config.js";
 import { planProvider } from "./check.js";
+
+// An endpoint that lists the same id twice must not become two identical entries
+// in models.json. First one wins; they carry the same metadata in practice.
+function uniqueById(list) {
+	const seen = new Set();
+	const out = [];
+	for (const entry of list) {
+		if (!entry?.id || seen.has(entry.id)) continue;
+		seen.add(entry.id);
+		out.push(entry);
+	}
+	return out;
+}
+
+const RUNTIME_SKIP = "runtime provider; another extension owns its model list";
+
+function emptyRow(plan, extra) {
+	return { ...plan, unreachable: false, runtime: false, added: [], removed: [], changed: [], candidates: [], ...extra };
+}
 
 function describeAdded({ def, sources }) {
 	const efforts = def.thinkingLevelMap ? Object.values(def.thinkingLevelMap).filter(Boolean) : [];
@@ -57,43 +77,67 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 	);
 	const officialData = (await official) ?? {};
 
-	const rows = plans.map((plan) => {
-		if (plan.skipped) return { ...plan, unreachable: false, runtime: false, added: [], removed: [], changed: [], candidates: [] };
-		// A probe that failed proves nothing about which models exist. `check` still
-		// repairs from models.dev / names in that case (it only reports), but sync
-		// writes, so it must not act on a guess: skip the provider entirely.
-		if (plan.endpointErr) return { ...plan, unreachable: true, runtime: false, added: [], removed: [], changed: [], candidates: [] };
-		const known = new Set(plan.provider.models.map((m) => m?.id).filter(Boolean));
-		const candidates = plan.endpointList.filter((m) => !known.has(m.id));
+	const rows = await Promise.all(
+		plans.map(async (plan) => {
+			if (plan.skipped) {
+				// `check` treats a provider with no static list as runtime-managed and says
+				// nothing. For sync that missing list is exactly what is worth filling —
+				// a hand-written `{ baseUrl, api, apiKey }` with no models — but only when
+				// nothing else owns the provider.
+				// `planProvider` returns only { pid, skipped } for a provider it never read,
+				// so the entry itself has to come from the config.
+				const provider = plan.provider ?? providers[plan.pid];
+				const hasList = Array.isArray(provider?.models) && provider.models.length > 0;
+				if (hasList || !provider?.baseUrl) return emptyRow({ ...plan, provider }, {});
+				// Say why, rather than borrowing `check`'s "no static model list" wording:
+				// the reason here is ownership, not an empty fallback.
+				if (isRuntimeProvider(plan.pid, runtime)) return emptyRow({ ...plan, provider }, { skipped: RUNTIME_SKIP });				let endpointList = [];
+				let endpointErr;
+				try {
+					endpointList = await fetchModelMeta(provider.baseUrl, probeKey(provider), provider.api, { fetchImpl });
+				} catch (err) {
+					endpointErr = err;
+				}
+				if (endpointErr) return emptyRow({ ...plan, provider }, { unreachable: true, endpointErr });
+				return emptyRow({ ...plan, provider }, { fillFromEmpty: true, endpointList: uniqueById(endpointList), skipped: undefined });
+			}
+			// A probe that failed proves nothing about which models exist. `check` still
+			// repairs from models.dev / names in that case (it only reports), but sync
+			// writes, so it must not act on a guess: skip the provider entirely.
+			if (plan.endpointErr) return emptyRow(plan, { unreachable: true });
+			return { ...plan, unreachable: false };
+		}),
+	);
+
+	for (const row of rows) {
+		if (row.skipped || row.unreachable) continue;
+		const models = Array.isArray(row.provider.models) ? row.provider.models : [];
+		const known = new Set(models.map((m) => m?.id).filter(Boolean));
+		const candidates = uniqueById(row.endpointList).filter((m) => !known.has(m.id));
 		const wanted = only && only.length ? new Set(only) : undefined;
 		const selected = wanted ? candidates.filter((m) => wanted.has(m.id)) : candidates;
-		const added = selected.map((meta) => ({
+		row.candidates = candidates;
+		row.added = selected.map((meta) => ({
 			meta,
-			...resolveModelMeta(meta.id, plan.provider.api, meta, officialData),
+			...resolveModelMeta(meta.id, row.provider.api, meta, officialData),
 		}));
-		return {
-			...plan,
-			unreachable: false,
-			runtime: isRuntimeProvider(plan.pid, runtime),
-			added,
-			removed: plan.vanished,
-			// A model that is about to be deleted must not also be listed as "to
-			// repair": the repair would be a guess based on a name the endpoint no
-			// longer serves, and reporting it twice is just noise.
-			changed: plan.changes.filter((c) => !plan.vanished.includes(c.id)),
-			candidates,
-		};
-	});
+		row.runtime = isRuntimeProvider(row.pid, runtime);
+		row.removed = row.vanished ?? [];
+		// A model that is about to be deleted must not also be listed as "to
+		// repair": the repair would be a guess based on a name the endpoint no
+		// longer serves, and reporting it twice is just noise.
+		row.changed = (row.changes ?? []).filter((c) => !row.removed.includes(c.id));
+	}
 
 	// Only an id that no endpoint lists at all is an error; ids that already exist
 	// in the configuration are accepted and simply add nothing.
 	if (only && only.length) {
 		const offered = new Set(
-			rows.flatMap((r) =>
-				r.skipped || r.unreachable
-					? []
-					: [...r.candidates.map((m) => m.id), ...r.provider.models.map((m) => m?.id)],
-			),
+			rows.flatMap((r) => {
+				if (r.skipped || r.unreachable) return [];
+				const existing = Array.isArray(r.provider.models) ? r.provider.models : [];
+				return [...r.candidates.map((m) => m.id), ...existing.map((m) => m?.id)];
+			}),
 		);
 		const unknown = only.filter((id) => !offered.has(id));
 		if (unknown.length) throw new Error(`Not offered by any endpoint: ${unknown.join(", ")}`);
@@ -105,7 +149,7 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 export function renderSyncPlan(plan, { prune = true } = {}) {
 	const blocks = plan.rows.map((row) => {
 		if (row.skipped) return `- ${row.pid}: skipped (${row.skipped})`;
-		if (row.runtime) return `- ${row.pid}: skipped (runtime provider; another extension owns its model list)`;
+		if (row.runtime) return `- ${row.pid}: skipped (${RUNTIME_SKIP})`;
 		if (row.unreachable) {
 			return (
 				`- ${row.pid} (${row.provider.baseUrl})\n` +
@@ -116,6 +160,7 @@ export function renderSyncPlan(plan, { prune = true } = {}) {
 
 		const lines = [`- ${row.pid} (${row.provider.baseUrl})`];
 		const removed = prune ? row.removed : [];
+		if (row.fillFromEmpty) lines.push("    no model list yet; it will be filled from the endpoint");
 		if (row.added.length) {
 			lines.push(`    ${row.added.length} new model(s)`);
 			lines.push(...row.added.map(describeAdded));
@@ -157,7 +202,9 @@ export async function applySync(ctx, plan, { prune = true } = {}) {
 		// Re-read: the provider may have been removed while the probes ran.
 		if (!provider) continue;
 		const removeSet = new Set(prune ? row.removed : []);
-		const kept = provider.models
+		// A provider with no model list at all has nothing to keep or repair.
+		const existing = Array.isArray(provider.models) ? provider.models : [];
+		const kept = existing
 			.map((model, index) => ({ id: model?.id, next: row.newModels?.[index] ?? model }))
 			.filter((entry) => !removeSet.has(entry.id))
 			.map((entry) => entry.next);
