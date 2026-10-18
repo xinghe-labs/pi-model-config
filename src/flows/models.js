@@ -19,6 +19,7 @@ import { errorMessage, notify, requireUI } from "../output.js";
 import { modelsJsonPath, userConfigPath } from "../paths.js";
 import { maskKey } from "../infer.js";
 import { readUserConfig } from "../user-config.js";
+import { readFileSync } from "node:fs";
 
 // Hidden-model bookkeeping lives in model-config.json next to runtimeProviders.
 function readHidden() {
@@ -33,7 +34,7 @@ function writeHidden(hidden) {
 	const path = userConfigPath();
 	let parsed = {};
 	try {
-		parsed = JSON.parse(require("node:fs").readFileSync(path, "utf8"));
+		parsed = JSON.parse(readFileSync(path, "utf8"));
 	} catch {
 		parsed = {};
 	}
