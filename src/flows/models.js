@@ -106,6 +106,14 @@ async function commit(ctx, pid, remove, hidden) {
 		`已从 ${pid} 删除 ${remove.length} 个模型（原文件已备份）：\n${remove.join("、")}\n` +
 			"它们已记入忽略名单，sync 不会再补回来。要恢复，从 model-config.json 的 hiddenModels 里删掉对应 id，再跑 sync --all。",
 	);
+	// The /model picker renders the enabledModels snapshot taken at session start,
+	// so the deleted models keep showing there until a real restart. Saying so is
+	// the difference between "it worked" and "it looks like nothing happened".
+	notify(
+		ctx,
+		"注意：/model 列表是会话启动时的快照，刚删的模型可能还显示在里面（选了也无法使用）。新开会话或重启 pi 后消失。",
+		"warning",
+	);
 	return remove;
 }
 

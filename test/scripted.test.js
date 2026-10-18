@@ -304,6 +304,7 @@ test("models: interactive removal writes models.json and the hidden list", async
 	assert.match(all, /\[confirm\] 删除模型/);
 	assert.match(all, /drop-me、also-drop/);
 	assert.match(all, /sync 不会再补回来/);
+	assert.match(all, /快照/, "提醒 /model 列表是会话启动时的快照");
 });
 
 test("models: declining the confirmation writes nothing", async (t) => {
