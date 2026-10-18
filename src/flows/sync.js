@@ -192,7 +192,7 @@ function pendingChanges(plan, prune) {
 }
 
 // The only place sync touches disk.
-export async function applySync(ctx, plan, { prune = true, deleteConfirmed = false } = {}) {
+export async function applySync(ctx, plan, { prune = true } = {}) {
 	const config = readModelsConfig();
 	config.providers ??= {};
 	const touched = [];
@@ -282,7 +282,7 @@ export async function syncFlow(ctx, { argv, fetchImpl = fetch } = {}) {
 					"写入 models.json？（会先备份）",
 			);
 			if (!ok) return notify(ctx, "已取消，什么都没写入。");
-			return applySync(ctx, plan, { prune, deleteConfirmed: doomedRows.length > 0 });
+			return applySync(ctx, plan, { prune });
 		}
 		notify(
 			ctx,
