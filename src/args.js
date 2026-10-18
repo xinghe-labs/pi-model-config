@@ -86,6 +86,11 @@ export function parseIdList(raw) {
 
 // `--all` and `--yes` are the same request: accept the whole plan. `--apply`
 // exists so a habit of typing it is not punished.
+//
+// Deliberate: `--yes` does NOT also answer the delete confirmation in `sync`.
+// Removing models is the one irreversible thing this package does, so it always
+// asks once when a UI exists. `--yes` is a synonym for "accept the plan", not for
+// "stop asking questions". Do not "fix" this into a silent delete.
 export function wantsAll(options) {
 	return options.flags.has("all") || options.flags.has("yes") || options.flags.has("apply");
 }

@@ -336,6 +336,30 @@ test("sync never removes anything when the endpoint cannot be read", async (t) =
 	assert.ok(!/already in sync/.test(text(ctx)));
 });
 
+test("--yes does not skip the delete confirmation when a UI exists", async (t) => {
+	// Deleting models is the only irreversible thing here, so it asks once even
+	// for --yes. Cancelling must leave the file byte-identical.
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "gone-model", cost: ZERO }]) });
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+
+	const asked = [];
+	const ctx = scriptCtx({ confirm: false });
+	const realConfirm = ctx.ui.confirm;
+	ctx.ui.confirm = async (title, body) => {
+		asked.push(`${title}: ${body}`);
+		return realConfirm();
+	};
+
+	await syncFlow(ctx, { argv: ["--all", "--yes"], fetchImpl: fakeFetch(["fresh-model"]) });
+
+	assert.equal(asked.length, 1, "--yes must still ask exactly once");
+	assert.match(asked[0], /Remove models/);
+	assert.match(asked[0], /gone-model/);
+	assert.match(text(ctx), /Cancelled; nothing was written/);
+	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
+});
+
 test("sync --no-prune keeps models the endpoint stopped listing", async (t) => {
 	const dir = withAgentDir(t);
 	seed(dir, { gw: provider([{ id: "gone-model", cost: ZERO }]) });
