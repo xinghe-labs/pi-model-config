@@ -49,6 +49,16 @@ test("readModelsConfig returns an empty shell when the file is absent", (t) => {
 	assert.deepEqual(readModelsConfig(), { providers: {} });
 });
 
+test("readModelsConfig treats an empty or whitespace-only file as empty", (t) => {
+	// An editor that truncated models.json to nothing must not wedge every flow
+	// on "could not be parsed": there is nothing left in the file to protect.
+	const dir = withAgentDir(t);
+	fs.writeFileSync(path.join(dir, "models.json"), "");
+	assert.deepEqual(readModelsConfig(), { providers: {} });
+	fs.writeFileSync(path.join(dir, "models.json"), "  \n\t\n");
+	assert.deepEqual(readModelsConfig(), { providers: {} });
+});
+
 test("readModelsConfig throws on a file it cannot parse", (t) => {
 	const dir = withAgentDir(t);
 	fs.writeFileSync(path.join(dir, "models.json"), "{ broken");

@@ -32,9 +32,12 @@ export function readFileIfExists(p) {
 
 // Throws when the file exists but cannot be parsed. Callers must abort and write
 // nothing: overwriting a file we failed to understand destroys the user's keys.
+// A whitespace-only file is treated as "empty", not as corruption: an editor
+// that truncated the file to nothing would otherwise wedge every flow here,
+// and there is nothing left in it to protect.
 export function readModelsConfig() {
 	const raw = readFileIfExists(modelsJsonPath());
-	if (raw === undefined) return { providers: {} };
+	if (raw === undefined || raw.trim() === "") return { providers: {} };
 	try {
 		return JSON.parse(stripJsonComments(stripBom(raw)));
 	} catch (err) {
