@@ -169,10 +169,14 @@ until the next session. `/model-setup check` is the deterministic path.
 ## Non-interactive use
 
 `check`, `list`, `sync` and the `<url> <key>` form of `add` work in RPC, JSON and
-print modes; their report goes to stdout when there is no UI. `sync` asks before
-deleting only when a UI exists, so an automated run gets the plan and applies it
-as asked. `remove`, the menu, and `add` without arguments need dialogs and refuse
-politely instead of failing halfway.
+print modes; their report goes to stdout when there is no UI.
+
+What differs is consent. `sync` and `add` take it from a flag (`--all` /
+`--only`), so an automated run gets the plan and applies exactly what was asked,
+and `sync` only adds a delete confirmation when a UI is present. `check` has no
+such flag — it applies repairs by asking — so without a UI it reports and writes
+nothing, pointing at `sync --all` for the applying. `remove`, the menu, and `add`
+without arguments need dialogs and refuse politely instead of failing halfway.
 
 ## Providers managed by another extension
 

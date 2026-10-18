@@ -8,7 +8,7 @@
 // Writing is never implied. `--all` and `--only` both mean "write what was
 // described"; without either, the flow prints its plan and touches nothing.
 
-const BOOLEAN = new Set(["all", "yes", "apply", "dry-run", "no-prune", "help", "force"]);
+const BOOLEAN = new Set(["all", "yes", "apply", "dry-run", "no-prune", "help"]);
 const VALUED = new Set(["only", "api", "id", "key"]);
 
 export const USAGE_TEXT = [

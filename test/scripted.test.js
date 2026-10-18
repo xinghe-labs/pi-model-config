@@ -10,6 +10,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { onlyIds, parseOptions, wantsAll, wantsWrite } from "../src/args.js";
+import { checkFlow } from "../src/flows/check.js";
 import { addFlow, planAdd } from "../src/flows/add.js";
 import { applySync, planSync, renderSyncPlan, syncFlow } from "../src/flows/sync.js";
 import { runtimeProviders } from "../src/user-config.js";
@@ -259,6 +260,44 @@ test("planAdd reports whether the provider already exists", async (t) => {
 	assert.equal(fresh.replaces, false);
 	const replaced = await planAdd({ baseUrl: "https://k/v1", pid: "keep", fetchImpl: fakeFetch(["m"]) });
 	assert.equal(replaced.replaces, true);
+});
+
+test("--force is rejected instead of being silently ignored", () => {
+	// It used to be accepted and do nothing, which is the same trap as a dropped
+	// --only: the user believes something was forced.
+	assert.throws(() => parseOptions(["--force"]), /Unknown option: --force/);
+});
+
+// ---- check in a session with no UI ----------------------------------------
+
+test("check reports in print mode instead of crashing on a missing dialog", async (t) => {
+	// ctx.ui.confirm used to be called unconditionally off the startup path, so
+	// `pi -p "/model-setup check"` threw a TypeError right after printing the report.
+	const dir = withAgentDir(t);
+	seed(dir, {
+		gw: provider([{ id: "m", contextWindow: 4096, maxTokens: 1024, reasoning: false, input: ["text"], cost: ZERO }]),
+	});
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+
+	const ctx = printCtx(t);
+	await assert.doesNotReject(() => checkFlow(ctx, { fetchImpl: fakeFetch(["m"]) }));
+
+	assert.match(text(ctx), /ctx 4096 -> 131072/);
+	assert.match(text(ctx), /writing nothing/);
+	assert.match(text(ctx), /sync --all/, "point at the path that does have explicit consent");
+	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before, "an unconfirmed repair must not be written");
+});
+
+test("check does not ask for the made-up `--select` flag", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, {
+		gw: provider([{ id: "m", contextWindow: 131072, maxTokens: 8192, reasoning: true, input: ["text"], cost: ZERO }]),
+	});
+	const ctx = printCtx(t);
+	await checkFlow(ctx, { fetchImpl: fakeFetch(["m"]) });
+	const report = text(ctx);
+	assert.ok(!/--select/.test(report), "no such flag is documented:" + report);
+	assert.match(report, /reporting every endpoint, writing nothing/);
 });
 
 // ---- sync -----------------------------------------------------------------

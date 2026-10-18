@@ -8,7 +8,7 @@
 // make the "nothing to report" decision read its own repairs.
 import { backupFile, readModelsConfig, writeJson } from "../json-file.js";
 import { loadOfficialData } from "../official.js";
-import { errorMessage, notify, requireUI } from "../output.js";
+import { errorMessage, notify, canPrompt } from "../output.js";
 import { modelsJsonPath } from "../paths.js";
 import { fetchModelMeta, probeKey } from "../probe.js";
 import { diffModel, repairedDef, resolveModelMeta } from "../resolve.js";
@@ -96,20 +96,22 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 
 	const runtime = runtimeProviders();
 	let targets = Object.keys(providers);
+	// Whether the user can be *asked*. The target picker and the per-provider repair
+	// confirm both need a UI; without one, `check` can only report.
+	const canConsent = !auto && canPrompt(ctx);
 	if (auto) {
 		// Startup must not re-report a deviation it cannot fix. A runtime provider's
 		// static fallback legitimately differs from live data.
 		targets = targets.filter((pid) => !isRuntimeProvider(pid, runtime));
 		if (!targets.length) return;
+	} else if (canConsent) {
+		const picked = await selectTargets(ctx, targets);
+		if (picked === undefined) return notify(ctx, "Cancelled");
+		targets = picked;
 	} else {
-		if (!requireUI(ctx, "check --select")) {
-			// No UI: check everything rather than nothing.
-			notify(ctx, "No interactive session: checking every endpoint.", "warning");
-		} else {
-			const picked = await selectTargets(ctx, targets);
-			if (picked === undefined) return notify(ctx, "Cancelled");
-			targets = picked;
-		}
+		// print / JSON / RPC mode. Checking everything read-only is still useful, so
+		// do that instead of refusing the whole command.
+		notify(ctx, "No interactive session: reporting every endpoint, writing nothing.", "warning");
 	}
 
 	// models.dev is one request shared by every endpoint, and each endpoint probe is
@@ -141,13 +143,17 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 		if (isRuntimeProvider(plan.pid, runtime)) continue;
 		let apply = true;
 		if (!auto) {
-			apply = Boolean(
-				await ctx.ui.confirm(
-					`Repair ${plan.pid}`,
-					`${plan.changes.length} deviation(s) found. Apply the inferred values?\n` +
-						plan.changes.map((c) => `${c.id}: ${c.diffs.join(", ")}`).join("\n"),
-				),
-			);
+			// A write needs consent, and consent needs a dialog. This used to call
+			// ctx.ui.confirm unconditionally, which threw in print / JSON / RPC mode.
+			apply = canConsent
+				? Boolean(
+						await ctx.ui.confirm(
+							`Repair ${plan.pid}`,
+							`${plan.changes.length} deviation(s) found. Apply the inferred values?\n` +
+								plan.changes.map((c) => `${c.id}: ${c.diffs.join(", ")}`).join("\n"),
+						),
+					)
+				: false;
 		}
 		if (!apply) continue;
 		plan.provider.models = plan.newModels;
@@ -155,7 +161,15 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 	}
 
 	if (!repaired.length) {
-		if (!auto) notify(ctx, "Nothing written.");
+		if (auto) return;
+		// Without a UI the deviations are real but unconfirmed, so say where the
+		// explicit-consent path is instead of leaving the user with a bare "nothing".
+		notify(
+			ctx,
+			canConsent
+				? "Nothing written."
+				: "Nothing written: a repair needs confirmation. Run /model-setup sync --all to apply it, or use an interactive session.",
+		);
 		return;
 	}
 
