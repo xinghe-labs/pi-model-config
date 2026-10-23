@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ZERO_COST } from "../src/const.js";
-import { diffModel, repairedDef, resolveModelMeta, sameThinkingMap, trusted } from "../src/resolve.js";
+import { diffModel, lookupOfficialModel, repairedDef, resolveModelMeta, sameThinkingMap, trusted } from "../src/resolve.js";
 
 const official = {
 	"claude-opus-4-6": {
@@ -27,6 +27,60 @@ test("models.dev outranks the name heuristic", () => {
 	// The heuristic would say 200000 for a claude name.
 	assert.equal(r.def.contextWindow, 1000000);
 	assert.equal(r.sources.contextWindow, "models.dev");
+});
+
+test("lookupOfficialModel matches gateway spelling variants", () => {
+	const data = {
+		"deepseek-v4.1-flash": {
+			context: 1000000,
+			output: 384000,
+			reasoning: true,
+			image: true,
+			efforts: ["low", "high", "max"],
+		},
+	};
+	for (const id of ["deepseek-4.1-flash", "deepseek-v4p1-flash", "deepseek-v4-1-flash", "deepseek-4.1-flash-background"]) {
+		assert.equal(lookupOfficialModel(id, data)?.context, 1000000, id);
+	}
+});
+
+test("lookupOfficialModel uses canonical aliases and prefers first-party metadata", () => {
+	const data = {
+		"deepseek-v4.1-flash": { context: 1000000, output: 131072, reasoning: true, image: true },
+		"deepseek-flash": {
+			context: 1048576,
+			output: 393216,
+			reasoning: true,
+			image: true,
+			firstParty: true,
+			aliases: ["deepseek-v4.1-flash-1017"],
+		},
+	};
+	assert.equal(lookupOfficialModel("deepseek-4.1-flash", data)?.context, 1048576);
+	// Even an exact aggregator spelling loses to the first-party canonical alias.
+	assert.equal(lookupOfficialModel("deepseek-v4.1-flash", data)?.output, 393216);
+});
+
+test("resolveModelMeta fills context and thinking levels from a fuzzy models.dev match", () => {
+	const r = resolveModelMeta(
+		"deepseek-4.1-flash",
+		"openai-completions",
+		{ id: "deepseek-4.1-flash" },
+		{
+			"deepseek-v4.1-flash": {
+				context: 1000000,
+				output: 384000,
+				reasoning: true,
+				image: true,
+				efforts: ["low", "high", "max"],
+			},
+		},
+	);
+	assert.equal(r.def.contextWindow, 1000000);
+	assert.equal(r.def.maxTokens, 384000);
+	assert.equal(r.def.reasoning, true);
+	assert.deepEqual(r.def.input, ["text", "image"]);
+	assert.equal(r.def.thinkingLevelMap.high, "high");
 });
 
 test("the name heuristic is the last resort and is labelled as such", () => {

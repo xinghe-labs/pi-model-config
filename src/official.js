@@ -25,12 +25,18 @@ export function normalizeOfficialModel(m) {
 	}
 	const ctx = m?.limit?.context;
 	const out = m?.limit?.output;
+	const aliases = [];
+	if (typeof m?.canonical_model_id === "string") {
+		const canonical = shortModelName(m.canonical_model_id);
+		if (canonical) aliases.push(canonical);
+	}
 	return {
 		context: Number.isInteger(ctx) && ctx > 0 ? ctx : undefined,
 		output: Number.isInteger(out) && out > 0 ? out : undefined,
 		reasoning: m?.reasoning === true,
 		image: Array.isArray(m?.modalities?.input) && m.modalities.input.includes("image"),
 		efforts: [...new Set(efforts)],
+		aliases: [...new Set(aliases)],
 	};
 }
 
@@ -47,10 +53,11 @@ export function extractOfficial(data) {
 			const key = shortModelName(mid);
 			if (!key) continue;
 			const expected = UPSTREAM_BY_PREFIX.find(([re]) => re.test(key))?.[1];
+			const normalized = { ...normalizeOfficialModel(m), firstParty: pid === expected };
 			if (pid === expected) {
-				primary[key] = normalizeOfficialModel(m);
+				primary[key] = normalized;
 			} else if (!secondary[key]) {
-				secondary[key] = normalizeOfficialModel(m);
+				secondary[key] = normalized;
 			}
 		}
 	}

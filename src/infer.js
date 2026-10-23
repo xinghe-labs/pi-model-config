@@ -79,3 +79,30 @@ export function maskKey(key) {
 export function shortModelName(id) {
 	return String(id).split(/[/:]/).pop().toLowerCase();
 }
+
+// Gateways spell the same model many ways: `deepseek-4.1-flash`,
+// `deepseek-v4.1-flash`, `deepseek-v4p1-flash`. Normalize those cosmetic
+// differences so a models.dev entry can still be found by name.
+export function modelAliasKey(id) {
+	let name = shortModelName(id);
+	// Region-separated entries are exact matches when the gateway uses the same
+	// suffix; for fuzzy matching drop it so the base model can still match.
+	name = name.replace(/@[a-z0-9-]+$/i, "");
+	// A gateway may expose the same model with a background/foreground suffix.
+	name = name.replace(/(?:[-_.]|^)background$/i, "");
+	// `4p1` is a common spelling of `4.1`.
+	name = name.replace(/(\d)p(\d)/g, "$1.$2");
+	// `v4.1` and `4.1` are the same version marker.
+	name = name.replace(/(^|[^a-z0-9])v(?=\d)/g, "$1");
+	return name.replace(/[^a-z0-9]+/g, "");
+}
+
+// Snapshot suffixes (`-1017`, `-260828`) should not stop an undated gateway id
+// from matching the corresponding models.dev entry.
+export function modelAliasKeys(id) {
+	const name = shortModelName(id);
+	const keys = new Set([modelAliasKey(name)]);
+	const undated = name.replace(/[-_.](?:\d{4}|\d{6}|\d{8})$/i, "");
+	if (undated !== name) keys.add(modelAliasKey(undated));
+	return [...keys].filter(Boolean);
+}

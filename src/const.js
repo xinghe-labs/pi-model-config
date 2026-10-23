@@ -42,7 +42,7 @@ export const MODELS_DEV_TIMEOUT_MS = 15000;
 // offline machine waits out the timeout on every add, check and startup.
 export const MODELS_DEV_RETRY_MS = 15 * 60 * 1000;
 // Bump when the extraction logic changes so stale caches rebuild themselves.
-export const MODELS_DEV_CACHE_VERSION = 2;
+export const MODELS_DEV_CACHE_VERSION = 3;
 
 // Model-name prefix -> the provider that actually makes the model. A "first
 // entry wins" scan over every provider is not enough: aggregators (poe, azure,

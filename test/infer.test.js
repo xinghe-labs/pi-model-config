@@ -5,6 +5,8 @@ import {
 	inferApi,
 	inferContextWindow,
 	maskKey,
+	modelAliasKey,
+	modelAliasKeys,
 	shortModelName,
 	suggestProviderId,
 	thinkingMapFromEfforts,
@@ -102,4 +104,18 @@ test("shortModelName strips gateway and vendor prefixes", () => {
 	assert.equal(shortModelName("moonshotai/kimi-k3"), "kimi-k3");
 	assert.equal(shortModelName("vendor/global:model-x"), "model-x");
 	assert.equal(shortModelName("Claude-Opus-4-6"), "claude-opus-4-6");
+});
+
+test("modelAliasKey folds cosmetic version spelling differences", () => {
+	const expected = modelAliasKey("deepseek-v4.1-flash");
+	assert.equal(modelAliasKey("deepseek-4.1-flash"), expected);
+	assert.equal(modelAliasKey("deepseek-v4p1-flash"), expected);
+	assert.equal(modelAliasKey("deepseek-v4-1-flash"), expected);
+	assert.equal(modelAliasKey("deepseek-v4.1-flash-background"), expected);
+	assert.notEqual(modelAliasKey("deepseek-v4-flash"), expected);
+});
+
+test("modelAliasKeys accepts an undated gateway id for a dated snapshot", () => {
+	assert.ok(modelAliasKeys("deepseek-v4.1-flash-1017").includes(modelAliasKey("deepseek-v4.1-flash")));
+	assert.ok(modelAliasKeys("glm-5.3-flash-260828").includes(modelAliasKey("glm-5.3-flash")));
 });

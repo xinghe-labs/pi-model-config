@@ -7,11 +7,70 @@
 // entry (typical case: the endpoint is down and models.dev has never heard of
 // the model).
 import { DEFAULT_MAX_TOKENS, PI_LEVELS, ZERO_COST } from "./const.js";
-import { REASONING_HINTS, VISION_HINTS, inferContextWindow, shortModelName, thinkingMapFromEfforts } from "./infer.js";
+import {
+	REASONING_HINTS,
+	VISION_HINTS,
+	inferContextWindow,
+	modelAliasKeys,
+	shortModelName,
+	thinkingMapFromEfforts,
+} from "./infer.js";
 
 const ENDPOINT = "endpoint";
 const OFFICIAL = "models.dev";
 const GUESS = "guess";
+
+// Build a fuzzy alias index once per official-data object. models.dev spells
+// versions differently from many gateways (`v4.1` vs `4.1`, `v4p1`), and
+// canonical ids can provide authoritative aliases when the model key is legacy.
+const officialAliasIndexes = new WeakMap();
+
+function aliasIndex(official) {
+	let index = officialAliasIndexes.get(official);
+	if (index) return index;
+	index = new Map();
+	for (const [name, meta] of Object.entries(official ?? {})) {
+		const names = [name, ...(Array.isArray(meta?.aliases) ? meta.aliases : [])];
+		for (const alias of names) {
+			for (const key of modelAliasKeys(alias)) {
+				const candidates = index.get(key) ?? [];
+				if (!candidates.includes(meta)) candidates.push(meta);
+				index.set(key, candidates);
+			}
+		}
+	}
+	officialAliasIndexes.set(official, index);
+	return index;
+}
+
+function pickAliasCandidate(id, candidates) {
+	if (!candidates?.length) return undefined;
+	const wanted = shortModelName(id);
+	return [...candidates].sort((a, b) => {
+		// A first-party entry beats an aggregator even if both claim the same id.
+		if (Boolean(a.firstParty) !== Boolean(b.firstParty)) return a.firstParty ? -1 : 1;
+		const aliasesA = Array.isArray(a.aliases) ? a.aliases : [];
+		const aliasesB = Array.isArray(b.aliases) ? b.aliases : [];
+		const exactA = aliasesA.includes(wanted) ? 0 : 1;
+		const exactB = aliasesB.includes(wanted) ? 0 : 1;
+		return exactA - exactB;
+	})[0];
+}
+
+export function lookupOfficialModel(id, official) {
+	const exact = official?.[shortModelName(id)];
+	// A first-party exact match is the strongest evidence and needs no alias pass.
+	if (exact?.firstParty) return exact;
+	let aliasMatch;
+	for (const key of modelAliasKeys(id)) {
+		aliasMatch = pickAliasCandidate(id, aliasIndex(official).get(key));
+		if (aliasMatch) break;
+	}
+	// An aggregator can happen to use the exact gateway spelling while carrying
+	// wrong limits; a first-party canonical alias is more trustworthy.
+	if (aliasMatch?.firstParty) return aliasMatch;
+	return exact ?? aliasMatch;
+}
 
 export const SOURCE_LABEL = {
 	[ENDPOINT]: "endpoint",
@@ -22,7 +81,7 @@ export const SOURCE_LABEL = {
 const fieldSource = (hasEndpoint, hasOfficial) => (hasEndpoint ? ENDPOINT : hasOfficial ? OFFICIAL : GUESS);
 
 export function resolveModelMeta(id, api, endpointMeta, official) {
-	const off = official?.[shortModelName(id)];
+	const off = lookupOfficialModel(id, official);
 	const contextWindow = endpointMeta?.contextWindow ?? off?.context ?? inferContextWindow(id);
 	const vision = endpointMeta?.vision ?? off?.image ?? VISION_HINTS.test(id);
 	const reasoning = endpointMeta?.reasoning ?? off?.reasoning ?? REASONING_HINTS.test(id);

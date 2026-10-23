@@ -53,8 +53,16 @@ test("normalizeOfficialModel keeps only what is used", () => {
 		reasoning: true,
 		modalities: { input: ["text", "image"] },
 		reasoning_options: [{ type: "effort", values: ["low", "high", "high"] }],
+		canonical_model_id: "deepseek/deepseek-v4.1-flash-1017",
 	});
-	assert.deepEqual(got, { context: 1000000, output: 32000, reasoning: true, image: true, efforts: ["low", "high"] });
+	assert.deepEqual(got, {
+		context: 1000000,
+		output: 32000,
+		reasoning: true,
+		image: true,
+		efforts: ["low", "high"],
+		aliases: ["deepseek-v4.1-flash-1017"],
+	});
 });
 
 test("normalizeOfficialModel rejects nonsense limits", () => {
@@ -64,6 +72,7 @@ test("normalizeOfficialModel rejects nonsense limits", () => {
 	assert.equal(got.reasoning, false);
 	assert.equal(got.image, false);
 	assert.deepEqual(got.efforts, []);
+	assert.deepEqual(got.aliases, []);
 });
 
 test("extractOfficial lets the real provider win over an aggregator", () => {
@@ -71,8 +80,10 @@ test("extractOfficial lets the real provider win over an aggregator", () => {
 	// anthropic's 1M context, not azure's 200k.
 	assert.equal(got["claude-opus-4-6"].context, 1000000);
 	assert.equal(got["claude-opus-4-6"].reasoning, true);
+	assert.equal(got["claude-opus-4-6"].firstParty, true);
 	// A model only an aggregator lists is still available.
 	assert.equal(got["azure-only-model"].context, 64000);
+	assert.equal(got["azure-only-model"].firstParty, false);
 });
 
 test("extractOfficial maps glm to zai", () => {
