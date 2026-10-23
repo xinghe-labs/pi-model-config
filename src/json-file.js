@@ -59,13 +59,41 @@ export function readSettings() {
 	}
 }
 
+// Keep this many timestamped backups beside the file; older ones are pruned so
+// a long-lived install does not accumulate a copy of every historical key.
+const BACKUP_KEEP = 5;
+
+// Returns undefined when the backup succeeded (or there was nothing to back up),
+// or a failure message the caller must surface before overwriting the file:
+// a silent failed backup would let the write proceed without its safety net.
+// A failed backup never blocks the main flow — the caller warns and continues.
 export function backupFile(p) {
 	try {
-		if (!fs.existsSync(p)) return;
+		if (!fs.existsSync(p)) return undefined;
 		const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
 		fs.copyFileSync(p, `${p}.bak-${stamp}`);
+	} catch (err) {
+		return `备份失败（${err instanceof Error ? err.message : String(err)}）`;
+	}
+	pruneBackups(p);
+	return undefined;
+}
+
+// Best-effort: keep only the BACKUP_KEEP newest timestamped backups. Only files
+// this function created (name ends in .bak-<stamp>) are ever removed, so a
+// hand-made models.json.bak or settings.json.bak-before-scope-fix survives.
+function pruneBackups(p) {
+	try {
+		const dir = path.dirname(p);
+		const prefix = `${path.basename(p)}.bak-`;
+		const stale = fs
+			.readdirSync(dir)
+			.filter((name) => name.startsWith(prefix))
+			.sort()
+			.slice(0, -BACKUP_KEEP);
+		for (const name of stale) fs.rmSync(path.join(dir, name), { force: true });
 	} catch {
-		/* a failed backup must not block the main flow */
+		/* pruning must never fail the flow */
 	}
 }
 

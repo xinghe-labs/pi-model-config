@@ -232,7 +232,8 @@ export async function applySync(ctx, plan, { prune = true } = {}) {
 		return [];
 	}
 
-	backupFile(modelsJsonPath());
+	const bakErr = backupFile(modelsJsonPath());
+	if (bakErr) notify(ctx, `${bakErr}，models.json 将在没有备份的情况下写入。`, "warning");
 	try {
 		writeJson(modelsJsonPath(), config);
 	} catch (err) {

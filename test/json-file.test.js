@@ -116,14 +116,63 @@ test("writeJson overwrites the old file rather than merging", (t) => {
 test("backupFile copies beside the original and does nothing when missing", (t) => {
 	const dir = withAgentDir(t);
 	const target = path.join(dir, "models.json");
-	backupFile(target);
+	assert.equal(backupFile(target), undefined, "a missing file is a no-op success");
 	assert.deepEqual(fs.readdirSync(dir), [], "a missing file must not create a backup");
 
 	fs.writeFileSync(target, '{"providers":{}}');
-	backupFile(target);
+	assert.equal(backupFile(target), undefined, "a successful backup returns undefined");
 	const backups = fs.readdirSync(dir).filter((f) => f.startsWith("models.json.bak-"));
 	assert.equal(backups.length, 1);
 	assert.equal(fs.readFileSync(path.join(dir, backups[0]), "utf8"), '{"providers":{}}');
+});
+
+test("backupFile returns a failure message when the copy fails", (t) => {
+	const dir = withAgentDir(t);
+	// copyFileSync cannot copy a directory: a portable failure even as root.
+	const target = path.join(dir, "not-a-file");
+	fs.mkdirSync(target);
+	const failed = backupFile(target);
+	assert.equal(typeof failed, "string");
+	assert.match(failed, /备份失败/);
+	assert.deepEqual(
+		fs.readdirSync(dir).filter((f) => f.includes(".bak-")),
+		[],
+		"a failed backup must not leave a partial copy",
+	);
+});
+
+test("backupFile keeps only the newest five timestamped backups", (t) => {
+	const dir = withAgentDir(t);
+	const target = path.join(dir, "models.json");
+	fs.writeFileSync(target, "current");
+	for (const stamp of [
+		"20260101000000",
+		"20260102000000",
+		"20260103000000",
+		"20260104000000",
+		"20260105000000",
+		"20260106000000",
+		"20260107000000",
+	]) {
+		fs.writeFileSync(path.join(dir, `models.json.bak-${stamp}`), stamp);
+	}
+	// Not ours: no timestamp suffix, so it must survive pruning.
+	fs.writeFileSync(path.join(dir, "models.json.bak"), "hand-made");
+
+	assert.equal(backupFile(target), undefined);
+	const left = fs.readdirSync(dir).filter((f) => f.startsWith("models.json.bak-")).sort();
+	// The four surviving fakes plus the fresh copy (its stamp is dynamic).
+	assert.equal(left.length, 5);
+	assert.deepEqual(left.slice(0, 4), [
+		"models.json.bak-20260104000000",
+		"models.json.bak-20260105000000",
+		"models.json.bak-20260106000000",
+		"models.json.bak-20260107000000",
+	]);
+	assert.match(left[4], /^models\.json\.bak-\d{14}$/);
+	// The live copy plus the untouched hand-made backup.
+	assert.equal(fs.readFileSync(path.join(dir, left[4]), "utf8"), "current");
+	assert.equal(fs.readFileSync(path.join(dir, "models.json.bak"), "utf8"), "hand-made");
 });
 
 test("readFileIfExists distinguishes missing from unreadable", (t) => {

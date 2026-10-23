@@ -224,6 +224,8 @@ disable the command.
 
 - `models.json` — backed up as `models.json.bak-<timestamp>` first, then written
   atomically (temp file + rename), so an interrupted write cannot truncate it.
+  Only the 5 newest timestamped backups are kept; if the backup itself fails, a
+  warning is shown and the write proceeds anyway.
 - `settings.json` — only `enabledModels`, and only when it is non-empty: adding a
   provider appends `<id>/*` automatically; removing one asks first.
 

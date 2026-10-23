@@ -28,7 +28,7 @@ function readHidden() {
 	return config.hiddenModels && typeof config.hiddenModels === "object" ? config.hiddenModels : {};
 }
 
-function writeHidden(hidden) {
+function writeHidden(ctx, hidden) {
 	// Read fresh and merge: runtimeProviders may have been edited while the
 	// dialogs were open, and this file belongs to the whole extension.
 	const path = userConfigPath();
@@ -39,7 +39,8 @@ function writeHidden(hidden) {
 		parsed = {};
 	}
 	const next = { ...parsed, hiddenModels: hidden };
-	backupFile(path);
+	const bakErr = backupFile(path);
+	if (bakErr) notify(ctx, `${bakErr}，model-config.json 将在没有备份的情况下写入。`, "warning");
 	writeJson(path, next);
 }
 
@@ -84,14 +85,15 @@ async function commit(ctx, pid, remove, hidden) {
 	provider.models = applyRemoval(Array.isArray(provider.models) ? provider.models : [], remove);
 	hidden[pid] = [...new Set([...(hidden[pid] ?? []), ...remove])];
 
-	backupFile(modelsJsonPath());
+	const bakErr = backupFile(modelsJsonPath());
+	if (bakErr) notify(ctx, `${bakErr}，models.json 将在没有备份的情况下写入。`, "warning");
 	try {
 		writeJson(modelsJsonPath(), fresh);
 	} catch (err) {
 		return notify(ctx, `写入 models.json 失败：${errorMessage(err)}`, "error");
 	}
 	try {
-		writeHidden(hidden);
+		writeHidden(ctx, hidden);
 	} catch (err) {
 		// models.json is already updated; the hidden list is a preference, not a
 		// prerequisite, so report rather than undo.

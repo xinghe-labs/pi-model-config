@@ -43,7 +43,8 @@ export async function removeFlow(ctx) {
 	);
 	if (!confirmed) return notify(ctx, "已取消");
 
-	backupFile(modelsJsonPath());
+	const bakErr = backupFile(modelsJsonPath());
+	if (bakErr) notify(ctx, `${bakErr}，models.json 将在没有备份的情况下写入。`, "warning");
 	delete config.providers[target];
 	try {
 		writeJson(modelsJsonPath(), config);
