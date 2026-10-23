@@ -6,7 +6,7 @@ import test from "node:test";
 import { checkFlow, planProvider, renderPlan } from "../src/flows/check.js";
 import { renderProviderList } from "../src/flows/list.js";
 import { canPrompt, notify, requireUI } from "../src/output.js";
-import { scopedEntriesFor } from "../src/scope.js";
+import { scopedEntriesFor, removeScopeUpdate } from "../src/scope.js";
 import { isRuntimeProvider, readUserConfig, runtimeProviders } from "../src/user-config.js";
 
 function withAgentDir(t) {
@@ -220,6 +220,27 @@ test("scopedEntriesFor finds the entries for one provider only", () => {
 	assert.deepEqual(scopedEntriesFor(settings, "zzz"), []);
 	assert.deepEqual(scopedEntriesFor({}, "a"), []);
 	assert.deepEqual(scopedEntriesFor(undefined, "a"), []);
+});
+
+test("removeScopeUpdate removes a provider's explicit enabledModels entries too", (t) => {
+	// A curated list may hold plain `provider/id` patterns rather than `provider/*`;
+	// deleting the provider must clear those as well, or every startup warns about
+	// patterns nothing matches anymore.
+	const dir = withAgentDir(t);
+	fs.writeFileSync(
+		path.join(dir, "settings.json"),
+		JSON.stringify({ enabledModels: ["gw/glm-5.3", "gw/*", "other/m"] }),
+	);
+	const log = [];
+	const ctx = { hasUI: true, ui: { notify: (text, level) => log.push({ text, level }) } };
+
+	assert.equal(removeScopeUpdate(ctx, "gw"), true);
+	const settings = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8"));
+	assert.deepEqual(settings.enabledModels, ["other/m"]);
+	assert.ok(
+		fs.readdirSync(dir).some((f) => f.startsWith("settings.json.bak-")),
+		"settings.json is backed up before the cleanup",
+	);
 });
 
 test("notify writes to stdout when there is no UI", (t) => {

@@ -367,6 +367,82 @@ test("sync does not re-add models the user deleted by hand", async (t) => {
 	assert.notEqual(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
 });
 
+test("sync --only restores a hidden model and clears it from the ignore list", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "kept", cost: ZERO }]) });
+	fs.writeFileSync(
+		path.join(dir, "model-config.json"),
+		JSON.stringify({ hiddenModels: { gw: ["removed-by-hand"] } }),
+	);
+
+	const ctx = scriptCtx({ confirm: true });
+	await syncFlow(ctx, { argv: ["--only", "removed-by-hand"], fetchImpl: fakeFetch(["kept", "removed-by-hand"]) });
+
+	assert.ok(
+		written(dir).providers.gw.models.some((m) => m.id === "removed-by-hand"),
+		"--only 点名忽略名单里的 id 是明确的恢复意图",
+	);
+	const userConfig = JSON.parse(fs.readFileSync(path.join(dir, "model-config.json"), "utf8"));
+	assert.ok(!userConfig.hiddenModels?.gw?.includes("removed-by-hand"), "同时从忽略名单移除");
+	assert.match(text(ctx), /已从忽略名单恢复：removed-by-hand/);
+});
+
+test("sync --all reports hidden candidates without restoring them", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "kept", cost: ZERO }]) });
+	fs.writeFileSync(
+		path.join(dir, "model-config.json"),
+		JSON.stringify({ hiddenModels: { gw: ["removed-by-hand"] } }),
+	);
+	const ignoreBefore = fs.readFileSync(path.join(dir, "model-config.json"), "utf8");
+
+	const ctx = scriptCtx({ confirm: true });
+	await syncFlow(ctx, { argv: ["--all"], fetchImpl: fakeFetch(["kept", "removed-by-hand"]) });
+
+	assert.ok(
+		!written(dir).providers.gw.models.some((m) => m.id === "removed-by-hand"),
+		"脚本化 --all 不许悄悄恢复",
+	);
+	assert.match(text(ctx), /忽略名单里，未添加：removed-by-hand/);
+	assert.equal(fs.readFileSync(path.join(dir, "model-config.json"), "utf8"), ignoreBefore);
+});
+
+test("the menu path asks before restoring hidden models", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "kept", cost: ZERO }]) });
+	fs.writeFileSync(
+		path.join(dir, "model-config.json"),
+		JSON.stringify({ hiddenModels: { gw: ["removed-by-hand"] } }),
+	);
+
+	// Accepted: the model is added and the ignore list loses the id.
+	const yes = scriptCtx({ confirm: true });
+	await syncFlow(yes, { fetchImpl: fakeFetch(["kept", "removed-by-hand"]), argv: undefined });
+	assert.match(text(yes), /\[confirm\] 忽略名单里的模型/);
+	assert.ok(written(dir).providers.gw.models.some((m) => m.id === "removed-by-hand"));
+	assert.ok(
+		!JSON.parse(fs.readFileSync(path.join(dir, "model-config.json"), "utf8")).hiddenModels?.gw?.includes("removed-by-hand"),
+		"清空后整个键被删除",
+	);
+
+	// Declined twice: neither the restore nor the write happens.
+	const dir2 = withAgentDir(t);
+	seed(dir2, { gw: provider([{ id: "kept", cost: ZERO }]) });
+	fs.writeFileSync(
+		path.join(dir2, "model-config.json"),
+		JSON.stringify({ hiddenModels: { gw: ["removed-by-hand"] } }),
+	);
+	const before = fs.readFileSync(path.join(dir2, "models.json"), "utf8");
+	const no = scriptCtx({ confirm: false });
+	await syncFlow(no, { fetchImpl: fakeFetch(["kept", "removed-by-hand"]), argv: undefined });
+	assert.match(text(no), /已取消，什么都没写入/);
+	assert.equal(fs.readFileSync(path.join(dir2, "models.json"), "utf8"), before);
+	assert.ok(
+		JSON.parse(fs.readFileSync(path.join(dir2, "model-config.json"), "utf8")).hiddenModels.gw.includes("removed-by-hand"),
+		"拒绝恢复时忽略名单保持原样",
+	);
+});
+
 // ---- check in a session with no UI ----------------------------------------
 
 test("check reports in print mode instead of crashing on a missing dialog", async (t) => {
@@ -397,6 +473,31 @@ test("check does not ask for the made-up `--select` flag", async (t) => {
 	const report = text(ctx);
 	assert.ok(!/--select/.test(report), "no such flag is documented:" + report);
 	assert.match(report, /只报告所有端点/);
+});
+
+test("check --fix repairs every deviation without a dialog in print mode", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, {
+		gw: provider([{ id: "m", contextWindow: 4096, maxTokens: 1024, reasoning: false, input: ["text"], cost: ZERO }]),
+	});
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+
+	const ctx = printCtx(t);
+	await checkFlow(ctx, { argv: ["--fix"], fetchImpl: fakeFetch(["m"]) });
+
+	const model = written(dir).providers.gw.models[0];
+	assert.equal(model.contextWindow, 131072, "the endpoint metadata was applied");
+	assert.notEqual(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
+	assert.match(text(ctx), /已写入 models\.json/);
+});
+
+test("check refuses an unknown flag instead of ignoring it", async (t) => {
+	withAgentDir(t);
+	const ctx = printCtx(t);
+	await assert.rejects(
+		() => checkFlow(ctx, { argv: ["--fixx"], fetchImpl: fakeFetch(["m"]) }),
+		/Unknown option: --fixx/,
+	);
 });
 
 // ---- sync -----------------------------------------------------------------

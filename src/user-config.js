@@ -16,8 +16,9 @@
 // A broken config file degrades to "no options" and reports the error through
 // the `error` field rather than throwing: this file is optional, so it must not
 // be able to disable the command.
-import { readFileIfExists } from "./json-file.js";
+import { backupFile, readFileIfExists, writeJson } from "./json-file.js";
 import { userConfigPath } from "./paths.js";
+import { errorMessage, notify } from "./output.js";
 
 export function readUserConfig() {
 	const raw = readFileIfExists(userConfigPath());
@@ -54,4 +55,39 @@ export function runtimeProviders() {
 
 export function isRuntimeProvider(id, set = runtimeProviders()) {
 	return set.has(String(id).toLowerCase());
+}
+
+// Remove ids from hiddenModels after a sync restore. Best-effort with its own
+// reporting: models.json is already written at that point, so a failed ignore
+// list update must not undo it — sync would simply keep skipping those ids.
+// An emptied provider key is deleted rather than left as [].
+export function removeFromHiddenModels(ctx, removals) {
+	if (!Array.isArray(removals) || removals.length === 0) return;
+	let parsed = {};
+	try {
+		parsed = JSON.parse(readFileIfExists(userConfigPath()) ?? "{}");
+	} catch {
+		parsed = {};
+	}
+	const hidden = parsed.hiddenModels && typeof parsed.hiddenModels === "object" ? { ...parsed.hiddenModels } : {};
+	let changed = false;
+	for (const { pid, ids } of removals) {
+		if (!Array.isArray(ids) || ids.length === 0) continue;
+		const list = Array.isArray(hidden[pid]) ? hidden[pid] : [];
+		const drop = new Set(ids);
+		const rest = list.filter((id) => !drop.has(id));
+		if (rest.length === list.length) continue;
+		if (rest.length) hidden[pid] = rest;
+		else delete hidden[pid];
+		changed = true;
+	}
+	if (!changed) return;
+	const bakErr = backupFile(userConfigPath());
+	if (bakErr) notify(ctx, `${bakErr}，model-config.json 将在没有备份的情况下写入。`, "warning");
+	parsed.hiddenModels = hidden;
+	try {
+		writeJson(userConfigPath(), parsed);
+	} catch (err) {
+		notify(ctx, `从忽略名单移除失败（这些模型下次 sync 仍会被跳过）：${errorMessage(err)}`, "warning");
+	}
 }

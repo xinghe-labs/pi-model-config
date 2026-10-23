@@ -19,7 +19,7 @@ not loaded until Pi re-reads its package list.
 /model-setup add                      add or replace a provider (five questions)
 /model-setup add <url> <key>          add from a URL and key, no questions
 /model-setup sync                     add new / remove gone / repair drifting models
-/model-setup check                    reconcile model parameters (never changes the list)
+/model-setup check [--fix]            reconcile model parameters (--fix applies repairs without asking)
 /model-setup list                     show configured providers
 /model-setup remove                   delete a provider
 /model-setup models <pid>              remove models you do not want
@@ -164,8 +164,10 @@ not something an audit undoes.
 /model-setup models my-gateway --only old-model,another-model
 ```
 
-To restore a hidden model, delete its id from `hiddenModels` in
-`model-config.json` and run `sync --all`.
+To restore a hidden model, run `sync --only <id>` (which also removes it from
+the ignore list), or delete its id from `hiddenModels` in `model-config.json`
+and run `sync --all`. The menu path of `sync` also asks before restoring hidden
+models the endpoint still serves.
 
 ## `/model-setup check`
 
@@ -176,6 +178,8 @@ models.dev and offers to write the corrections back.
   configuration is not an audit decision.
 - A repair only touches fields with a trusted source, so a hand-written `name`, a
   custom `compat` key or a field this package knows nothing about survives.
+- `--fix` is consent in writing: every deviation found is repaired without a
+  per-provider dialog (for scripts and `pi -p`).
 - The audit is idempotent: a second run reports nothing.
 - A file that cannot be parsed aborts before anything is written.
 
@@ -196,10 +200,11 @@ print modes; their report goes to stdout when there is no UI.
 
 What differs is consent. `sync` and `add` take it from a flag (`--all` /
 `--only`), so an automated run gets the plan and applies exactly what was asked,
-and `sync` only adds a delete confirmation when a UI is present. `check` has no
-such flag — it applies repairs by asking — so without a UI it reports and writes
-nothing, pointing at `sync --all` for the applying. `remove`, the menu, and `add`
-without arguments need dialogs and refuse politely instead of failing halfway.
+and `sync` only adds a delete confirmation when a UI is present. For `check` the
+flag is `--fix`: without it and without a UI it reports and writes nothing,
+pointing at `sync --all` or `check --fix` for the applying. `remove`, the menu,
+and `add` without arguments need dialogs and refuse politely instead of failing
+halfway.
 
 ## Providers managed by another extension
 
@@ -225,7 +230,8 @@ disable the command.
 - `models.json` — backed up as `models.json.bak-<timestamp>` first, then written
   atomically (temp file + rename), so an interrupted write cannot truncate it.
   Only the 5 newest timestamped backups are kept; if the backup itself fails, a
-  warning is shown and the write proceeds anyway.
+  warning is shown and the write proceeds anyway. Every write rewrites the whole
+  file, so hand-written `//` comments are not preserved.
 - `settings.json` — only `enabledModels`, and only when it is non-empty: adding a
   provider appends `<id>/*` automatically; removing one asks first.
 

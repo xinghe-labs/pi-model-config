@@ -25,7 +25,7 @@ import { modelsJsonPath } from "../paths.js";
 import { fetchModelMeta, probeKey } from "../probe.js";
 import { SOURCE_LABEL, resolveModelMeta } from "../resolve.js";
 import { applyScopeUpdate } from "../scope.js";
-import { isRuntimeProvider, readUserConfig, runtimeProviders } from "../user-config.js";
+import { isRuntimeProvider, readUserConfig, removeFromHiddenModels, runtimeProviders } from "../user-config.js";
 import { planProvider } from "./check.js";
 
 // An endpoint that lists the same id twice must not become two identical entries
@@ -120,14 +120,19 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 		const models = Array.isArray(row.provider.models) ? row.provider.models : [];
 		const known = new Set(models.map((m) => m?.id).filter(Boolean));
 		const hidden = hiddenSet(row.pid);
-		const candidates = uniqueById(row.endpointList).filter((m) => !known.has(m.id) && !hidden.has(m.id));
+		const candidates = uniqueById(row.endpointList).filter((m) => !known.has(m.id));
 		const wanted = only && only.length ? new Set(only) : undefined;
-		const selected = wanted ? candidates.filter((m) => wanted.has(m.id)) : candidates;
+		// An ignored id named by --only is an explicit restore request; every other
+		// ignored id is reported and left out.
+		const selected = candidates.filter((m) => (wanted ? wanted.has(m.id) : !hidden.has(m.id)));
+		const restored = new Set(selected.filter((m) => hidden.has(m.id)).map((m) => m.id));
+		const resolve = (meta) => ({ meta, ...resolveModelMeta(meta.id, row.provider.api, meta, officialData) });
 		row.candidates = candidates;
-		row.added = selected.map((meta) => ({
-			meta,
-			...resolveModelMeta(meta.id, row.provider.api, meta, officialData),
-		}));
+		row.added = selected.map(resolve);
+		row.restoredIds = [...restored];
+		row.hiddenCandidates = candidates
+			.filter((m) => hidden.has(m.id) && !restored.has(m.id))
+			.map(resolve);
 		row.runtime = isRuntimeProvider(row.pid, runtime);
 		row.removed = row.vanished ?? [];
 		// A model that is about to be deleted must not also be listed as "to
@@ -181,6 +186,13 @@ export function renderSyncPlan(plan, { prune = true } = {}) {
 		if (row.changed.length) {
 			lines.push(`    ${row.changed.length} 个模型待修复`);
 			lines.push(...row.changed.map((c) => `      ~ ${c.id}: ${c.diffs.join("，")}`));
+		}
+		if (row.restoredIds?.length) lines.push(`    已从忽略名单恢复：${row.restoredIds.join("、")}`);
+		if (row.hiddenCandidates?.length) {
+			lines.push(
+				`    ${row.hiddenCandidates.length} 个模型在忽略名单里，未添加：` +
+					`${row.hiddenCandidates.map((m) => m.meta.id).join("、")}（--only <ids> 可恢复）`,
+			);
 		}
 		if (lines.length === 1) lines.push("    已同步");
 		return lines.join("\n");
@@ -246,6 +258,12 @@ export async function applySync(ctx, plan, { prune = true } = {}) {
 		.map((row) => `${row.pid} (+${row.added.length} -${prune ? row.removed.length : 0} ~${row.changed.length})`);
 	notify(ctx, `已写入 models.json（保留备份），同步了 ${summary.join("、")}。`);
 
+	// Restored models leave the ignore list, or the next sync would skip them again.
+	const restored = pendingChanges(plan, prune).filter((row) => touched.includes(row.pid) && row.restoredIds?.length);
+	if (restored.length) {
+		removeFromHiddenModels(ctx, restored.map((row) => ({ pid: row.pid, ids: row.restoredIds })));
+	}
+
 	try {
 		await ctx.modelRegistry.refresh({ providers: touched });
 	} catch (err) {
@@ -274,6 +292,28 @@ export async function syncFlow(ctx, { argv, fetchImpl = fetch } = {}) {
 		// Menu path (no arguments): the user cannot pass --all here, so the consent
 		// dialog IS the writer flag — it names every change, deletions included.
 		if ((!argv || argv.length === 0) && canPrompt(ctx)) {
+			// Hidden models the endpoint still serves are surfaced here: restoring is
+			// a decision, so it gets its own question instead of riding along with
+			// the write consent.
+			const hiddenRows = plan.rows.filter(
+				(row) => !row.skipped && !row.runtime && !row.unreachable && row.hiddenCandidates?.length,
+			);
+			if (hiddenRows.length) {
+				const listing = hiddenRows
+					.map((row) => `${row.pid}：${row.hiddenCandidates.map((m) => m.meta.id).join("、")}`)
+					.join("\n");
+				const restore = await ctx.ui.confirm(
+					"忽略名单里的模型",
+					`以下模型在忽略名单里，端点仍在提供：\n${listing}\n\n恢复添加，并从忽略名单移除吗？`,
+				);
+				if (restore) {
+					for (const row of hiddenRows) {
+						row.restoredIds = [...(row.restoredIds ?? []), ...row.hiddenCandidates.map((m) => m.meta.id)];
+						row.added = [...row.added, ...row.hiddenCandidates];
+						row.hiddenCandidates = [];
+					}
+				}
+			}
 			const pending = pendingChanges(plan, prune);
 			if (!pending.length) return plan; // the plan already said: 已同步
 			const doomedRows = prune

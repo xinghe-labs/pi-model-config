@@ -11,8 +11,8 @@
 //   /model-setup list        show configured providers
 //   /model-setup remove      delete a provider
 //
-// `check` and `list` are read-only and work without a UI (their report goes to
-// stdout); `add` and `remove` need dialogs.
+// `check` and `list` work without a UI (their report goes to stdout); check only
+// writes with --fix. `add` and `remove` need dialogs.
 import { checkFlow } from "./flows/check.js";
 import { addFlow } from "./flows/add.js";
 import { listFlow } from "./flows/list.js";
@@ -26,7 +26,7 @@ const USAGE = [
 	"/model-setup add                交互式添加供应商（问五个问题）",
 	"/model-setup add <url> <key>    只给 URL 和 Key，参数自动推断",
 	"/model-setup sync               补齐新模型 / 删掉失效模型 / 修参数",
-	"/model-setup check              对账模型参数（不改模型列表）",
+	"/model-setup check [--fix]      对账模型参数；--fix 不询问直接修复全部端点",
 	"/model-setup list               列出已配置的供应商",
 	"/model-setup remove             删除一个供应商",
 	"/model-setup models <pid>       删除该供应商里不要的模型（记入忽略名单）",
@@ -70,7 +70,7 @@ export default function modelConfigExtension(pi) {
 		const { sub, rest } = parseArgs(args);
 		try {
 			if (sub === "list") return await listFlow(ctx);
-			if (sub === "check") return await checkFlow(ctx);
+			if (sub === "check") return await checkFlow(ctx, { argv: rest });
 			if (sub === "remove") return await removeFlow(ctx);
 			if (sub === "models") return await modelsFlow(ctx, { argv: rest });
 			if (sub === "sync") return await syncFlow(ctx, { argv: rest });

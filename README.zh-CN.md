@@ -17,7 +17,7 @@ pi install npm:pi-model-config
 /model-setup add                      添加或替换一个供应商（五个问题）
 /model-setup add <url> <key>          只给 URL 和 Key，不问问题
 /model-setup sync                     补齐新模型 / 删掉失效模型 / 修参数
-/model-setup check                    只对账参数（不改模型列表）
+/model-setup check [--fix]            只对账参数（--fix 不询问直接修复）
 /model-setup list                     列出已配置的供应商
 /model-setup remove                   删除一个供应商
 /model-setup models <pid>              删除不要的模型
@@ -146,8 +146,9 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 /model-setup models my-gateway --only old-model,another-model
 ```
 
-想恢复某个被删的模型：从 `model-config.json` 的 `hiddenModels` 里删掉对应 id，
-再跑 `sync --all`。
+想恢复某个被删的模型：跑 `sync --only <id>`（会同时把它从忽略名单移除），
+或从 `model-config.json` 的 `hiddenModels` 里删掉对应 id 再跑 `sync --all`。
+菜单路径的 `sync` 发现忽略名单里的模型端点仍在提供时，也会先问要不要恢复。
 
 ## `/model-setup check`
 
@@ -155,6 +156,7 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 
 - 端点已不再提供的模型**只报告，绝不删除** —— 删配置不是对账该做的决定。
 - 修复只动有可信来源的字段，所以手写的 `name`、自定义 `compat` 键、本扩展不认识的字段都会保留。
+- `--fix` 是书面同意：修复全部端点发现的偏差，不再逐个询问（脚本 / `pi -p` 用）。
 - 对账是幂等的：第二次跑什么都不报。
 - 文件解析失败会直接中止，一个字节都不写。
 
@@ -173,8 +175,8 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 
 区别在「谁来同意这次写入」。`sync` 和 `add` 的同意来自 flag（`--all` / `--only`），
 所以自动化运行拿到计划后只执行你明确要求的那部分；`sync` 只在有 UI 时才额外为删除弹一次确认。
-`check` 没有这种 flag——它是靠“问你”来获得同意的——所以没有 UI 时它只报告、不写，并指出
-要落地请用 `sync --all`。`remove`、菜单、以及不带参数的 `add` 需要对话框，会明确拒绝而不是做到一半失败。
+`check` 的同意是 `--fix`：没有 UI 时不带 flag 它只报告、不写，并指出要落地请用 `sync --all`
+或 `check --fix`。`remove`、菜单、以及不带参数的 `add` 需要对话框，会明确拒绝而不是做到一半失败。
 
 ## 由其他扩展管理的供应商
 
@@ -196,7 +198,8 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 
 - `models.json` —— 先备份成 `models.json.bak-<时间戳>`，再原子写入（临时文件 + rename），
   中断不会留下半截文件。时间戳备份只保留最近 5 份，更早的自动清理；
-  备份本身失败时会给出警告（写入照常进行，不会因此中断）。
+  备份本身失败时会给出警告（写入照常进行，不会因此中断）。写入会重排整个文件，
+  手写的 `//` 注释不会保留。
 - `settings.json` —— 只碰 `enabledModels`，且只在其非空时：添加供应商会自动追加 `<id>/*`；
   删除时会先问。
 

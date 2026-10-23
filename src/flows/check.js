@@ -7,6 +7,7 @@
 // `p.models`, the second applies it. Mutable state updated during pass one would
 // make the "nothing to report" decision read its own repairs.
 import { backupFile, readModelsConfig, writeJson } from "../json-file.js";
+import { parseOptions } from "../args.js";
 import { loadOfficialData } from "../official.js";
 import { errorMessage, notify, canPrompt } from "../output.js";
 import { modelsJsonPath } from "../paths.js";
@@ -80,7 +81,12 @@ async function selectTargets(ctx, targets) {
 	return pick === "全部端点" ? targets : [pick];
 }
 
-export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
+// `--fix` is consent in writing: every deviation found is repaired without a
+// dialog, which is what a script or an agent driving `pi -p` needs. Without it
+// the flow stays read-only outside an interactive session.
+export async function checkFlow(ctx, { auto = false, argv, fetchImpl = fetch } = {}) {
+	const options = argv ? parseOptions(argv) : { flags: new Set(), values: {} };
+	const fix = !auto && options.flags.has("fix");
 	let config;
 	try {
 		config = readModelsConfig();
@@ -104,6 +110,8 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 		// static fallback legitimately differs from live data.
 		targets = targets.filter((pid) => !isRuntimeProvider(pid, runtime));
 		if (!targets.length) return;
+	} else if (fix) {
+		// No target picker and no per-provider confirm: --fix names every endpoint.
 	} else if (canConsent) {
 		const picked = await selectTargets(ctx, targets);
 		if (picked === undefined) return notify(ctx, "已取消");
@@ -142,7 +150,7 @@ export async function checkFlow(ctx, { auto = false, fetchImpl = fetch } = {}) {
 		if (!plan.changes.length) continue;
 		if (isRuntimeProvider(plan.pid, runtime)) continue;
 		let apply = true;
-		if (!auto) {
+		if (!auto && !fix) {
 			// A write needs consent, and consent needs a dialog. This used to call
 			// ctx.ui.confirm unconditionally, which threw in print / JSON / RPC mode.
 			apply = canConsent
