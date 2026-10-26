@@ -28,8 +28,9 @@ not loaded until Pi re-reads its package list.
 `/model-config` is still registered as an alias.
 
 The one-liner form is the point of the two newest commands: point it at a gateway
-and it fills in `contextWindow`, `maxTokens`, reasoning, image input, thinking
-levels and `cost` from the endpoint's own metadata, so nothing has to be typed.
+and it fills in `contextWindow`, `maxTokens`, reasoning, image input and thinking
+levels from the endpoint's own metadata, so nothing has to be typed. Cost is not
+inferred; every model gets zero cost (see "models.dev gotchas" below).
 
 ```bash
 # what would be added, and with which numbers — writes nothing
@@ -184,8 +185,9 @@ models.dev and offers to write the corrections back.
 - A file that cannot be parsed aborts before anything is written.
 
 The same audit runs silently once per process at session start. It stays quiet
-when it finds nothing, does not run again on `/reload`, and never re-reports a
-deviation it is not allowed to fix.
+when it finds nothing and does not run again on `/reload`. A deviation it is not
+allowed to fix (a vanished model, say) is reported once per session — that is a
+deliberate refusal to delete on your behalf, not a nagging bug.
 
 It is **best-effort and non-blocking**: startup is never delayed waiting on a
 network probe, and a session that ends immediately (`pi -p "..."`, for instance)
@@ -205,6 +207,11 @@ flag is `--fix`: without it and without a UI it reports and writes nothing,
 pointing at `sync --all` or `check --fix` for the applying. `remove`, the menu,
 and `add` without arguments need dialogs and refuse politely instead of failing
 halfway.
+
+One extra gate: scripted `add` refuses a non-loopback `http://` endpoint outright
+(the API key would travel in the clear, and there is no dialog to ask with). Use
+https, run the interactive `add` to confirm, or pass `--all` explicitly to accept
+the risk.
 
 ## Providers managed by another extension
 
@@ -227,11 +234,13 @@ disable the command.
 
 ## What it writes
 
-- `models.json` — backed up as `models.json.bak-<timestamp>` first, then written
-  atomically (temp file + rename), so an interrupted write cannot truncate it.
-  Only the 5 newest timestamped backups are kept; if the backup itself fails, a
-  warning is shown and the write proceeds anyway. Every write rewrites the whole
-  file, so hand-written `//` comments are not preserved.
+- `models.json` — backed up as `models.json.bak-<millisecond timestamp>` first,
+  then written atomically (temp file + rename), so an interrupted write cannot
+  truncate it and a rewrite cannot widen a restrictive mode such as 0600.
+  Timestamped backups are kept for all three files this package writes
+  (models.json / settings.json / model-config.json), 5 newest each; if a backup
+  itself fails, a warning is shown and the write proceeds anyway. Every write
+  rewrites the whole file, so hand-written `//` comments are not preserved.
 - `settings.json` — only `enabledModels`, and only when it is non-empty: adding a
   provider appends `<id>/*` automatically; removing one asks first.
 
@@ -263,7 +272,7 @@ by `supportedGenerationMethods` to drop embeddings.
 | --- | --- |
 | `~/.pi/agent/models.json` | Read and written. JSONC: comments and trailing commas allowed. |
 | `~/.pi/agent/settings.json` | `enabledModels` only. Strict JSON, like Pi's own settings manager. |
-| `~/.pi/agent/model-config.json` | Optional: `runtimeProviders`. |
+| `~/.pi/agent/model-config.json` | Optional: `runtimeProviders`, `hiddenModels`. |
 | `~/.pi/agent/model-config-modelsdev-cache.json` | models.dev cache. Deleting it is safe. |
 
 Set `PI_CODING_AGENT_DIR` to point all of the above elsewhere.

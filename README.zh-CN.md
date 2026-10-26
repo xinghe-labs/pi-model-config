@@ -26,7 +26,8 @@ pi install npm:pi-model-config
 `/model-config` 仍注册为别名。
 
 两个新命令的重点就是这行免交互形式：把 URL 和 Key 给它，`contextWindow`、`maxTokens`、
-推理 / 视觉能力、思考强度、`cost` 全部从端点自己的元数据推断，不用手填。
+推理 / 视觉能力、思考强度全部从端点自己的元数据推断，不用手填；`cost` 不做推断，
+统一写零（见下文「models.dev 的几个坑」）。
 
 ```bash
 # 先看会加什么、参数是多少 —— 一个字节都不写
@@ -160,8 +161,8 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 - 对账是幂等的：第二次跑什么都不报。
 - 文件解析失败会直接中止，一个字节都不写。
 
-同一套对账会在会话启动时静默跑一次：没发现就完全不出声，`/reload` 不重跑，
-也绝不重复报告它无权修复的偏差。
+同一套对账会在会话启动时静默跑一次：没发现就完全不出声，`/reload` 不重跑。
+它无权修复的偏差（如下线模型）每次会话报一次——这不是重复报问题的 bug，而是它刻意不替你做删除决定。
 
 它是**尽力而为、不阻塞启动**的：启动永远不会为了等一次网络探测而卡住；而立刻结束的会话
 （比如 `pi -p "..."`）可能在审计跑完前就退出了。被中断的审计不会留下半截状态 ——
@@ -177,6 +178,9 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 所以自动化运行拿到计划后只执行你明确要求的那部分；`sync` 只在有 UI 时才额外为删除弹一次确认。
 `check` 的同意是 `--fix`：没有 UI 时不带 flag 它只报告、不写，并指出要落地请用 `sync --all`
 或 `check --fix`。`remove`、菜单、以及不带参数的 `add` 需要对话框，会明确拒绝而不是做到一半失败。
+
+一个额外的闸门：脚本化 `add` 遇到非本机的 `http://` 端点会直接拒绝（API Key 会明文发送，
+脚本模式无人确认）。改用 https、用交互式 add 确认，或明确加 `--all` 表示接受该风险。
 
 ## 由其他扩展管理的供应商
 
@@ -196,8 +200,9 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 
 ## 它会写什么
 
-- `models.json` —— 先备份成 `models.json.bak-<时间戳>`，再原子写入（临时文件 + rename），
-  中断不会留下半截文件。时间戳备份只保留最近 5 份，更早的自动清理；
+- `models.json` —— 先备份成 `models.json.bak-<毫秒时间戳>`，再原子写入（临时文件 + rename），
+  中断不会留下半截文件，重写也不会放宽已有的严格权限（如 0600）。同名的三个文件
+  （models.json / settings.json / model-config.json）的时间戳备份都只保留最近 5 份；
   备份本身失败时会给出警告（写入照常进行，不会因此中断）。写入会重排整个文件，
   手写的 `//` 注释不会保留。
 - `settings.json` —— 只碰 `enabledModels`，且只在其非空时：添加供应商会自动追加 `<id>/*`；
@@ -227,7 +232,7 @@ Gemini 的 REST 用 `?key=` 鉴权而不是 bearer，所以探测走查询参数
 | --- | --- |
 | `~/.pi/agent/models.json` | 读写。JSONC：允许注释和尾逗号。 |
 | `~/.pi/agent/settings.json` | 只碰 `enabledModels`。严格 JSON，与 Pi 的 settings-manager 一致。 |
-| `~/.pi/agent/model-config.json` | 可选：`runtimeProviders`。 |
+| `~/.pi/agent/model-config.json` | 可选：`runtimeProviders`、`hiddenModels`。 |
 | `~/.pi/agent/model-config-modelsdev-cache.json` | models.dev 缓存，删了没事。 |
 
 设置 `PI_CODING_AGENT_DIR` 可以把以上全部指到别处。
