@@ -43,11 +43,23 @@ export async function removeFlow(ctx) {
 	);
 	if (!confirmed) return notify(ctx, "已取消");
 
+	// Re-read after the dialogs: the file may have changed while they were open,
+	// and writing the startup snapshot would silently restore any concurrent edit.
+	let fresh;
+	try {
+		fresh = readModelsConfig();
+	} catch (err) {
+		return notify(ctx, errorMessage(err), "error");
+	}
+	if (!fresh.providers?.[target]) {
+		return notify(ctx, `${target} 已不存在（可能同时被别的会话删除了），什么都没写。`, "warning");
+	}
+
 	const bakErr = backupFile(modelsJsonPath());
 	if (bakErr) notify(ctx, `${bakErr}，models.json 将在没有备份的情况下写入。`, "warning");
-	delete config.providers[target];
+	delete fresh.providers[target];
 	try {
-		writeJson(modelsJsonPath(), config);
+		writeJson(modelsJsonPath(), fresh);
 	} catch (err) {
 		return notify(ctx, `未删除：写入 models.json 失败（${errorMessage(err)}）`, "error");
 	}

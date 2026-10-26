@@ -12,6 +12,7 @@ import test from "node:test";
 import { onlyIds, parseOptions, wantsAll, wantsWrite } from "../src/args.js";
 import { checkFlow } from "../src/flows/check.js";
 import { modelsFlow } from "../src/flows/models.js";
+import { removeFlow } from "../src/flows/remove.js";
 import { addFlow, planAdd } from "../src/flows/add.js";
 import { applySync, planSync, renderSyncPlan, syncFlow } from "../src/flows/sync.js";
 import { runtimeProviders } from "../src/user-config.js";
@@ -131,6 +132,62 @@ test("writers are opt-in and --dry-run overrides them", () => {
 	assert.equal(wantsWrite(parseOptions(["--yes"])), true, "--yes is accepted as a synonym");
 	assert.equal(wantsWrite(parseOptions(["--all", "--dry-run"])), false);
 	assert.equal(wantsWrite(parseOptions(["--only", "a", "--dry-run"])), false);
+});
+
+test("an empty --only is an error, not an unfiltered write", () => {
+	// H1: `--only=` used to parse as a present-but-empty filter, and the flows'
+	// `if (only && only.length)` guard turned that into "add everything and prune
+	// the rest" — one slipped keystroke away from wiping the configuration.
+	for (const argv of [["--only="], ["--only", ""]]) {
+		assert.throws(() => parseOptions(argv), /--only needs a value/);
+	}
+});
+
+test("planAdd and planSync refuse an empty only list defensively", async (t) => {
+	// The CLI cannot produce this anymore, but a programmatic caller can.
+	await assert.rejects(() => planAdd({ baseUrl: "https://x/v1", only: [], fetchImpl: fakeFetch(["m"]) }), /--only 需要至少一个模型 id/);
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "a", cost: ZERO }]) });
+	await assert.rejects(() => planSync({ only: [], fetchImpl: fakeFetch(["m"]) }), /--only 需要至少一个模型 id/);
+});
+
+test("each flow rejects options it does not understand", async () => {
+	// The rejection happens in restrictOptions before anything touches disk.
+	const syncBad = scriptCtx();
+	await assert.rejects(() => syncFlow(syncBad, { argv: ["--key", "x"] }), /sync 不支持选项：--key/);
+	const checkBad = scriptCtx();
+	await assert.rejects(() => checkFlow(checkBad, { argv: ["--all"] }), /check 不支持选项：--all/);
+	const addBad = scriptCtx();
+	await assert.rejects(() => addFlow(addBad, { argv: ["https://x/v1", "--no-prune"] }), /add 不支持选项：--no-prune/);
+	const modelsBad = scriptCtx();
+	await assert.rejects(() => modelsFlow(modelsBad, { argv: ["gw", "--all"] }), /models 不支持选项：--all/);
+});
+
+test("add refuses extra positionals instead of reading them as a key", async (t) => {
+	const dir = withAgentDir(t);
+	const ctx = printCtx(t);
+	// `add <url> key1 key2` used to silently ignore key2; anything beyond URL +
+	// key is a typo worth stopping on. (Trailing words after --only are consumed
+	// as ids now, so this is the remaining way to get surplus positionals.)
+	await addFlow(ctx, {
+		argv: ["https://gw.example.com/v1", "sk-1", "sk-2"],
+		fetchImpl: fakeFetch(["m"]),
+	});
+	assert.match(text(ctx), /参数过多/);
+	assert.ok(!fs.existsSync(path.join(dir, "models.json")));
+});
+
+test("--only accepts several space-separated ids without eating them as a key", async (t) => {
+	// The old single-word parse read m2 as the API key and silently dropped it
+	// from the filter; space-separated ids are now consumed by --only itself.
+	const dir = withAgentDir(t);
+	const ctx = scriptCtx();
+	await addFlow(ctx, {
+		argv: ["https://gw.example.com/v1", "--only", "m1", "m2", "--all"],
+		fetchImpl: fakeFetch(["m1", "m2", "m3"]),
+	});
+	assert.deepEqual(written(dir).providers["gw-example-com"].models.map((m) => m.id), ["m1", "m2"]);
+	assert.equal(written(dir).providers["gw-example-com"].apiKey, "none", "m2 must not become the API key");
 });
 
 // ---- add ------------------------------------------------------------------
@@ -785,4 +842,142 @@ test("sync --help prints the usage", async (t) => {
 	await syncFlow(ctx, { argv: ["--help"] });
 	assert.match(text(ctx), /用法：/);
 	assert.match(text(ctx), /\/model-setup sync/);
+});
+
+// ---- concurrent edits between plan and apply -----------------------------
+
+test("applySync aligns repairs by model id, not by index", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", contextWindow: 999, maxTokens: 100, reasoning: false, input: ["text"], cost: ZERO }]) });
+	const plan = await planSync({ fetchImpl: fakeFetch(["m"]) });
+
+	// While the plan's confirm dialogs were "open", another writer prepends a
+	// model. Index alignment would write m's repaired metadata onto added-later.
+	seed(dir, {
+		gw: provider([
+			{ id: "added-later", contextWindow: 4096, maxTokens: 1024, reasoning: false, input: ["text"], cost: ZERO },
+			{ id: "m", contextWindow: 999, maxTokens: 100, reasoning: false, input: ["text"], cost: ZERO },
+		]),
+	});
+
+	await applySync(scriptCtx(), plan, { prune: true });
+	const models = written(dir).providers.gw.models;
+	const repaired = models.find((m) => m.id === "m");
+	assert.equal(repaired.contextWindow, 131072, "m was repaired by id");
+	const added = models.find((m) => m.id === "added-later");
+	assert.equal(added.contextWindow, 4096, "the concurrent addition survived untouched");
+});
+
+test("remove re-reads after the confirm and preserves concurrent edits", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, {
+		gw: provider([{ id: "a", cost: ZERO }]),
+		other: provider([{ id: "b", cost: ZERO }]),
+	});
+	const dialogs = [];
+	const ctx = {
+		log: [], cwd: dir, hasUI: true, model: {}, modelRegistry: { refresh: async () => {} },
+		ui: {
+			notify: (text, level) => dialogs.push({ text, level }),
+			select: async (_title, items) => items[0],
+			// The other session adds a model to `other` while the user reads the
+			// confirm dialog; deleting from the startup snapshot would erase it.
+			confirm: async (title) => {
+				dialogs.push({ text: `[confirm] ${title}` });
+				seed(dir, {
+					gw: provider([{ id: "a", cost: ZERO }]),
+					other: provider([{ id: "b", cost: ZERO }, { id: "added-while-confirming", cost: ZERO }]),
+				});
+				return true;
+			},
+			input: async () => { throw new Error("unexpected input"); },
+		},
+	};
+
+	await removeFlow(ctx, {});
+
+	const providers = written(dir).providers;
+	assert.equal(providers.gw, undefined, "gw was deleted");
+	assert.ok(
+		providers.other.models.some((m) => m.id === "added-while-confirming"),
+		"the concurrent edit to another provider survived",
+	);
+});
+
+test("check re-reads after the confirm and repairs by id", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", contextWindow: 4096, maxTokens: 1024, reasoning: false, input: ["text"], cost: ZERO }]) });
+	const dialogs = [];
+	const ctx = {
+		log: [], cwd: dir, hasUI: true, model: {}, modelRegistry: { refresh: async () => {} },
+		ui: {
+			notify: (text, level) => dialogs.push({ text, level }),
+			select: async (_title, items) => (items.includes("全部端点") ? "全部端点" : items[0]),
+			confirm: async (title) => {
+				dialogs.push({ text: `[confirm] ${title}` });
+				// Another writer adds a model while the user reads the dialog.
+				seed(dir, {
+					gw: provider([
+						{ id: "added-while-confirming", contextWindow: 4096, maxTokens: 1024, reasoning: false, input: ["text"], cost: ZERO },
+						{ id: "m", contextWindow: 4096, maxTokens: 1024, reasoning: false, input: ["text"], cost: ZERO },
+					]),
+				});
+				return true;
+			},
+			input: async () => { throw new Error("unexpected input"); },
+		},
+	};
+
+	await checkFlow(ctx, { fetchImpl: fakeFetch(["m"]) });
+
+	const models = written(dir).providers.gw.models;
+	const repaired = models.find((m) => m.id === "m");
+	assert.equal(repaired.contextWindow, 131072, "m was repaired from the endpoint metadata");
+	assert.ok(
+		models.some((m) => m.id === "added-while-confirming"),
+		"the concurrent addition survived the repair write",
+	);
+});
+
+test("a corrupt model-config.json is never clobbered by a write path", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "keep" }, { id: "drop-me" }]) });
+	fs.writeFileSync(path.join(dir, "model-config.json"), "{ not json");
+	const corrupt = fs.readFileSync(path.join(dir, "model-config.json"), "utf8");
+	const ctx = {
+		log: [], cwd: dir, hasUI: true, model: {}, modelRegistry: { refresh: async () => {} },
+		ui: {
+			notify: (text, level) => ctx.log.push({ text, level }),
+			select: async (_title, items) => {
+				if (items.includes("gw")) return "gw";
+				return items[0];
+			},
+			confirm: async () => true,
+			input: async () => { throw new Error("unexpected input"); },
+		},
+	};
+
+	await modelsFlow(ctx, { argv: ["gw", "--only", "drop-me"] });
+
+	assert.deepEqual(written(dir).providers.gw.models.map((m) => m.id), ["keep"], "the removal itself still applied");
+	assert.equal(
+		fs.readFileSync(path.join(dir, "model-config.json"), "utf8"),
+		corrupt,
+		"the corrupt file must not be overwritten with {}",
+	);
+	assert.match(text(ctx), /无法读取或解析/);
+	assert.match(text(ctx), /忽略名单没有更新/);
+});
+
+test("sync refuses to run when model-config.json is unparseable", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", cost: ZERO }]) });
+	fs.writeFileSync(path.join(dir, "model-config.json"), "{ not json");
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+	const ctx = scriptCtx({ confirm: true });
+
+	await syncFlow(ctx, { argv: ["--all"], fetchImpl: fakeFetch(["m"]) });
+
+	assert.match(text(ctx), /sync 失败：model-config\.json could not be parsed/);
+	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before, "sync must not act without the ignore list");
 });

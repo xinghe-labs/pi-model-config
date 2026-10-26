@@ -16,30 +16,17 @@
 //
 // Nothing is written unless --all or --only was given: the plan is printed
 // first, because it names models that are about to be deleted.
-import { USAGE_TEXT, onlyIds, parseOptions, wantsWrite } from "../args.js";
+import { USAGE_TEXT, onlyIds, parseOptions, restrictOptions, wantsWrite } from "../args.js";
 import { ZERO_COST } from "../const.js";
 import { backupFile, readModelsConfig, writeJson } from "../json-file.js";
 import { loadOfficialData } from "../official.js";
 import { canPrompt, errorMessage, notify } from "../output.js";
 import { modelsJsonPath } from "../paths.js";
-import { fetchModelMeta, probeKey } from "../probe.js";
+import { fetchModelMeta, probeKey, uniqueById } from "../probe.js";
 import { SOURCE_LABEL, resolveModelMeta } from "../resolve.js";
 import { applyScopeUpdate } from "../scope.js";
 import { isRuntimeProvider, readUserConfig, removeFromHiddenModels, runtimeProviders } from "../user-config.js";
 import { planProvider } from "./check.js";
-
-// An endpoint that lists the same id twice must not become two identical entries
-// in models.json. First one wins; they carry the same metadata in practice.
-function uniqueById(list) {
-	const seen = new Set();
-	const out = [];
-	for (const entry of list) {
-		if (!entry?.id || seen.has(entry.id)) continue;
-		seen.add(entry.id);
-		out.push(entry);
-	}
-	return out;
-}
 
 const RUNTIME_SKIP = "运行时供应商，模型列表由另一个扩展管理";
 
@@ -68,11 +55,17 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 	const missing = targets.filter((pid) => !providers[pid]);
 	if (missing.length) throw new Error(`models.json 里没有这个供应商：${missing.join("、")}`);
 	if (!targets.length) throw new Error("models.json 里还没有任何供应商");
+	// Same as planAdd: an empty --only is a typo, not "add everything and prune
+	// the rest", which would silently delete every unlisted model.
+	if (only !== undefined && !only.length) throw new Error("--only 需要至少一个模型 id");
 
 	// Models the user deleted by hand stay deleted: sync's job is to mirror the
 	// endpoint, but a deliberate removal is recorded in hiddenModels and wins
-	// over the endpoint.
-	const hiddenModels = readUserConfig().hiddenModels;
+	// over the endpoint. An unparseable model-config.json must stop sync rather
+	// than silently lose that gate: the next --all would resurrect deleted models.
+	const userConfig = readUserConfig();
+	if (userConfig.error) throw new Error(userConfig.error);
+	const hiddenModels = userConfig.hiddenModels;
 	const hiddenSet = (pid) => new Set(Array.isArray(hiddenModels?.[pid]) ? hiddenModels[pid] : []);
 
 	// One models.dev request shared by every endpoint; each probe runs in parallel
@@ -97,7 +90,10 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 				if (hasList || !provider?.baseUrl) return emptyRow({ ...plan, provider }, {});
 				// Say why, rather than borrowing `check`'s "no static model list" wording:
 				// the reason here is ownership, not an empty fallback.
-				if (isRuntimeProvider(plan.pid, runtime)) return emptyRow({ ...plan, provider }, { skipped: RUNTIME_SKIP });				let endpointList = [];
+				if (isRuntimeProvider(plan.pid, runtime)) {
+					return emptyRow({ ...plan, provider }, { skipped: RUNTIME_SKIP });
+				}
+				let endpointList = [];
 				let endpointErr;
 				try {
 					endpointList = await fetchModelMeta(provider.baseUrl, probeKey(provider), provider.api, { fetchImpl });
@@ -221,12 +217,18 @@ export async function applySync(ctx, plan, { prune = true } = {}) {
 		// Re-read: the provider may have been removed while the probes ran.
 		if (!provider) continue;
 		const removeSet = new Set(prune ? row.removed : []);
+		// Align by model id, not by index: the provider's list may have been edited
+		// while the plan's confirm dialogs were open, and index alignment would then
+		// write repaired metadata onto the wrong model.
+		const planned = new Map(
+			(Array.isArray(row.provider.models) ? row.provider.models : [])
+				.map((model, index) => [model?.id, row.newModels?.[index] ?? model]),
+		);
 		// A provider with no model list at all has nothing to keep or repair.
 		const existing = Array.isArray(provider.models) ? provider.models : [];
 		const kept = existing
-			.map((model, index) => ({ id: model?.id, next: row.newModels?.[index] ?? model }))
-			.filter((entry) => !removeSet.has(entry.id))
-			.map((entry) => entry.next);
+			.filter((model) => !removeSet.has(model?.id))
+			.map((model) => (model?.id && planned.get(model.id)) || model);
 		// cost first and last, as in add: pi-ai's calculateCost dereferences it.
 		provider.models = [...kept, ...row.added.map(({ def }) => ({ cost: { ...ZERO_COST }, ...def }))];
 		touched.push(row.pid);
@@ -275,7 +277,12 @@ export async function applySync(ctx, plan, { prune = true } = {}) {
 }
 
 export async function syncFlow(ctx, { argv, fetchImpl = fetch } = {}) {
-	const options = argv ? parseOptions(argv) : { flags: new Set(), values: {}, positional: [] };
+	const options = restrictOptions(
+		"sync",
+		argv ? parseOptions(argv) : { flags: new Set(), values: {}, positional: [] },
+		new Set(["all", "yes", "apply", "dry-run", "no-prune", "help"]),
+		new Set(["only"]),
+	);
 	if (options.flags.has("help")) return notify(ctx, USAGE_TEXT);
 
 	const prune = !options.flags.has("no-prune");

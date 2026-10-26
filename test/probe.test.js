@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { normalizeListedModel, probeHeaders, probeKey, probeUrl } from "../src/probe.js";
+import { fetchModelMeta, normalizeListedModel, probeHeaders, probeKey, probeUrl, uniqueById } from "../src/probe.js";
 
 test("probeUrl appends /models to a plain base URL", () => {
 	assert.equal(probeUrl("https://api.example.com/v1", "k", "openai-completions"), "https://api.example.com/v1/models");
@@ -115,4 +115,18 @@ test("normalizeListedModel ignores zero and negative limits", () => {
 test("normalizeListedModel keeps a model with no metadata", () => {
 	assert.deepEqual(normalizeListedModel({ id: "bare" }), { id: "bare" });
 	assert.deepEqual(normalizeListedModel({ name: "models/bare" }), { id: "bare" });
+});
+
+test("uniqueById keeps the first entry and drops repeats", () => {
+	const list = [{ id: "a" }, { id: "b" }, { id: "a" }, { id: undefined }, { id: "b" }];
+	assert.deepEqual(uniqueById(list), [{ id: "a" }, { id: "b" }]);
+});
+
+test("fetchModelMeta deduplicates an endpoint that lists an id twice", async () => {
+	const fetchImpl = async () => ({
+		ok: true,
+		json: async () => ({ data: [{ id: "dup", context_length: 4096 }, { id: "dup" }, { id: "solo" }] }),
+	});
+	const got = await fetchModelMeta("https://gw.example.com/v1", "k", "openai-completions", { fetchImpl });
+	assert.deepEqual(got.map((m) => m.id), ["dup", "solo"]);
 });

@@ -169,10 +169,21 @@ test("backupFile keeps only the newest five timestamped backups", (t) => {
 		"models.json.bak-20260106000000",
 		"models.json.bak-20260107000000",
 	]);
-	assert.match(left[4], /^models\.json\.bak-\d{14}$/);
+	assert.match(left[4], /^models\.json\.bak-\d{17}$/);
 	// The live copy plus the untouched hand-made backup.
 	assert.equal(fs.readFileSync(path.join(dir, left[4]), "utf8"), "current");
 	assert.equal(fs.readFileSync(path.join(dir, "models.json.bak"), "utf8"), "hand-made");
+});
+
+test("writeJson preserves the original file's permissions", (t) => {
+	const dir = withAgentDir(t);
+	const target = path.join(dir, "models.json");
+	fs.writeFileSync(target, "{}");
+	fs.chmodSync(target, 0o600);
+
+	writeJson(target, { providers: {} });
+	// models.json carries API keys; a rewrite must not widen a restrictive mode.
+	assert.equal(fs.statSync(target).mode & 0o777, 0o600);
 });
 
 test("readFileIfExists distinguishes missing from unreadable", (t) => {

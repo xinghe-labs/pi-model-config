@@ -11,38 +11,14 @@
 //   /model-setup models <pid>        same, straight into that provider
 //   /model-setup models <pid> --only a,b   remove exactly those, no dialogs
 //
-// Restoring a hidden model: delete its id from `hiddenModels` in
-// model-config.json (or the whole key), then run sync --all.
-import { parseOptions, onlyIds } from "../args.js";
+// Restoring a hidden model: run sync --only <id>, or delete its id from
+// hiddenModels in model-config.json (or the whole key), then run sync --all.
+import { parseOptions, onlyIds, restrictOptions } from "../args.js";
 import { backupFile, readModelsConfig, writeJson } from "../json-file.js";
 import { errorMessage, notify, requireUI } from "../output.js";
-import { modelsJsonPath, userConfigPath } from "../paths.js";
+import { modelsJsonPath } from "../paths.js";
 import { maskKey } from "../infer.js";
-import { readUserConfig } from "../user-config.js";
-import { readFileSync } from "node:fs";
-
-// Hidden-model bookkeeping lives in model-config.json next to runtimeProviders.
-function readHidden() {
-	const config = readUserConfig();
-	if (config.error) notify(config.error, "warning");
-	return config.hiddenModels && typeof config.hiddenModels === "object" ? config.hiddenModels : {};
-}
-
-function writeHidden(ctx, hidden) {
-	// Read fresh and merge: runtimeProviders may have been edited while the
-	// dialogs were open, and this file belongs to the whole extension.
-	const path = userConfigPath();
-	let parsed = {};
-	try {
-		parsed = JSON.parse(readFileSync(path, "utf8"));
-	} catch {
-		parsed = {};
-	}
-	const next = { ...parsed, hiddenModels: hidden };
-	const bakErr = backupFile(path);
-	if (bakErr) notify(ctx, `${bakErr}，model-config.json 将在没有备份的情况下写入。`, "warning");
-	writeJson(path, next);
-}
+import { addToHiddenModels } from "../user-config.js";
 
 function pickProvider(ctx, ids) {
 	return ctx.ui.select("管理哪个供应商的模型？", ids);
@@ -71,7 +47,7 @@ function applyRemoval(models, remove) {
 	return models.filter((m) => !doomed.has(m?.id));
 }
 
-async function commit(ctx, pid, remove, hidden) {
+async function commit(ctx, pid, remove) {
 	// Re-read: the file may have changed while the dialogs were open.
 	let fresh;
 	try {
@@ -83,7 +59,6 @@ async function commit(ctx, pid, remove, hidden) {
 	if (!provider) return notify(ctx, `${pid} 已不存在，什么都没写。`, "error");
 
 	provider.models = applyRemoval(Array.isArray(provider.models) ? provider.models : [], remove);
-	hidden[pid] = [...new Set([...(hidden[pid] ?? []), ...remove])];
 
 	const bakErr = backupFile(modelsJsonPath());
 	if (bakErr) notify(ctx, `${bakErr}，models.json 将在没有备份的情况下写入。`, "warning");
@@ -92,12 +67,11 @@ async function commit(ctx, pid, remove, hidden) {
 	} catch (err) {
 		return notify(ctx, `写入 models.json 失败：${errorMessage(err)}`, "error");
 	}
-	try {
-		writeHidden(ctx, hidden);
-	} catch (err) {
+	const hiddenResult = addToHiddenModels(ctx, [{ pid, ids: remove }]);
+	if (hiddenResult.ok === false) {
 		// models.json is already updated; the hidden list is a preference, not a
 		// prerequisite, so report rather than undo.
-		notify(ctx, `模型已删除，但记录忽略名单失败（sync 可能会补回它们）：${errorMessage(err)}`, "warning");
+		notify(ctx, "模型已删除，但忽略名单没有更新，sync 可能会把它们补回。", "warning");
 	}
 	try {
 		await ctx.modelRegistry.refresh({ providers: [pid] });
@@ -107,7 +81,7 @@ async function commit(ctx, pid, remove, hidden) {
 	notify(
 		ctx,
 		`已从 ${pid} 删除 ${remove.length} 个模型（原文件已备份）：\n${remove.join("、")}\n` +
-			"它们已记入忽略名单，sync 不会再补回来。要恢复，从 model-config.json 的 hiddenModels 里删掉对应 id，再跑 sync --all。",
+			"它们已记入忽略名单，sync 不会再补回来。要恢复，跑 sync --only <id>，或从 model-config.json 的 hiddenModels 里删掉对应 id 再跑 sync --all。",
 	);
 	// The /model picker renders the enabledModels snapshot taken at session start,
 	// so the deleted models keep showing there until a real restart. Saying so is
@@ -122,7 +96,12 @@ async function commit(ctx, pid, remove, hidden) {
 
 export async function modelsFlow(ctx, { argv, fetchImpl } = {}) {
 	void fetchImpl; // no network here; kept for signature symmetry
-	const options = argv ? parseOptions(argv) : { flags: new Set(), values: {}, positional: [] };
+	const options = restrictOptions(
+		"models",
+		argv ? parseOptions(argv) : { flags: new Set(), values: {}, positional: [] },
+		new Set(["help"]),
+		new Set(["only"]),
+	);
 	if (options.flags.has("help")) {
 		notify(
 			ctx,
@@ -152,7 +131,6 @@ export async function modelsFlow(ctx, { argv, fetchImpl } = {}) {
 	const pidArg = options.positional[0];
 	if (pidArg && !providers[pidArg]) return notify(ctx, `models.json 里没有这个供应商：${pidArg}`, "error");
 
-	const hidden = readHidden();
 	let pid = pidArg;
 	let remove = [];
 
@@ -182,5 +160,5 @@ export async function modelsFlow(ctx, { argv, fetchImpl } = {}) {
 		if (!ok) return notify(ctx, "已取消，什么都没写入。");
 	}
 
-	return commit(ctx, pid, remove, hidden);
+	return commit(ctx, pid, remove);
 }

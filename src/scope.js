@@ -21,11 +21,16 @@ export function applyScopeUpdate(ctx, providerId) {
 	const enabled = settings?.enabledModels;
 	if (!Array.isArray(enabled) || enabled.length === 0) return false;
 	if (enabled.some((p) => matchesProvider(p, providerId))) return false;
-	backupFile(settingsPath());
+	const bakErr = backupFile(settingsPath());
+	if (bakErr) notify(ctx, `${bakErr}，settings.json 将在没有备份的情况下写入。`, "warning");
 	settings.enabledModels = [...enabled, `${providerId}/*`];
 	try {
 		writeJson(settingsPath(), settings);
-		notify(ctx, `Added ${providerId}/* to enabledModels (settings.json backed up); ${SCOPED_RELOAD_HINT}`, "info");
+		notify(
+			ctx,
+			`Added ${providerId}/* to enabledModels${bakErr ? "（备份失败）" : "（settings.json backed up)"}; ${SCOPED_RELOAD_HINT}`,
+			"info",
+		);
 		return true;
 	} catch (err) {
 		notify(ctx, `enabledModels not updated (writing settings.json failed): ${errorMessage(err)}`, "error");
@@ -38,11 +43,16 @@ export function removeScopeUpdate(ctx, providerId) {
 	if (!Array.isArray(settings?.enabledModels)) return false;
 	const rest = settings.enabledModels.filter((e) => !matchesProvider(e, providerId));
 	if (rest.length === settings.enabledModels.length) return false;
-	backupFile(settingsPath());
+	const bakErr = backupFile(settingsPath());
+	if (bakErr) notify(ctx, `${bakErr}，settings.json 将在没有备份的情况下写入。`, "warning");
 	settings.enabledModels = rest;
 	try {
 		writeJson(settingsPath(), settings);
-		notify(ctx, `enabledModels cleaned up; ${SCOPED_RELOAD_HINT}`, "info");
+		notify(
+			ctx,
+			`enabledModels cleaned up${bakErr ? "（备份失败）" : "（settings.json backed up)"}; ${SCOPED_RELOAD_HINT}`,
+			"info",
+		);
 		return true;
 	} catch (err) {
 		notify(ctx, `enabledModels not persisted (writing settings.json failed): ${errorMessage(err)}`, "error");

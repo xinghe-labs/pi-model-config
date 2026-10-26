@@ -65,15 +65,18 @@ export function extractOfficial(data) {
 }
 
 export function readOfficialCache() {
-	const raw = readFileIfExists(officialCachePath());
-	if (raw === undefined) return undefined;
+	// A cache file that cannot be read (permissions, I/O error) is the same as no
+	// cache: throwing here would reject loadOfficialData and silently kill the
+	// startup audit via its background catch.
 	try {
+		const raw = readFileIfExists(officialCachePath());
+		if (raw === undefined) return undefined;
 		const parsed = JSON.parse(raw);
 		if (parsed?.official && typeof parsed.fetchedAt === "number" && parsed.version === MODELS_DEV_CACHE_VERSION) {
 			return parsed;
 		}
 	} catch {
-		/* a corrupt cache is the same as no cache */
+		/* a corrupt or unreadable cache is the same as no cache */
 	}
 	return undefined;
 }
@@ -92,6 +95,23 @@ export async function loadOfficialData({ fetchImpl = fetch, now = () => Date.now
 	const cached = readOfficialCache();
 	const ttl = cached?.ok === false ? MODELS_DEV_RETRY_MS : MODELS_DEV_TTL_MS;
 	if (cached && now() - cached.fetchedAt < ttl) return cached.official;
+	// Shared by the fetch failure and the empty-catalog fall-through below.
+	const recordFailure = () => {
+		// Re-read before recording the failure: a concurrent caller may have
+		// refreshed the cache while this request was in flight, and clobbering that
+		// fresh success with a failure marker would downgrade it to a 15-minute
+		// negative cache for no reason. A different fetchedAt proves the concurrent
+		// write; the stale success we started from does not count as one.
+		const latest = readOfficialCache();
+		if (latest?.fetchedAt !== cached?.fetchedAt && latest?.ok && latest.official && Object.keys(latest.official).length) {
+			return latest.official;
+		}
+		// Record the failure but keep the previous successful payload, so a transient
+		// outage downgrades to stale data instead of to nothing.
+		const official = latest?.official ?? cached?.official ?? {};
+		writeOfficialCache({ version: MODELS_DEV_CACHE_VERSION, fetchedAt: now(), ok: false, official });
+		return official;
+	};
 	try {
 		const res = await fetchImpl(MODELS_DEV_URL, {
 			headers: { "User-Agent": PROBE_UA },
@@ -99,16 +119,13 @@ export async function loadOfficialData({ fetchImpl = fetch, now = () => Date.now
 		});
 		if (!res.ok) throw new Error(`HTTP ${res.status}`);
 		const official = extractOfficial(await res.json());
-		if (Object.keys(official).length) {
-			writeOfficialCache({ version: MODELS_DEV_CACHE_VERSION, fetchedAt: now(), ok: true, official });
-			return official;
-		}
+		// An empty catalog is a failure like any other: falling through with
+		// undefined would hand callers nothing and poison the alias index.
+		if (!Object.keys(official).length) throw new Error("models.dev catalog was empty");
+		writeOfficialCache({ version: MODELS_DEV_CACHE_VERSION, fetchedAt: now(), ok: true, official });
+		return official;
 	} catch {
-		/* offline or malformed: fall through to the last good data */
+		/* offline, malformed, or empty: degrade to the last good data */
+		return recordFailure();
 	}
-	// Record the failure but keep the previous successful payload, so a transient
-	// outage downgrades to stale data instead of to nothing.
-	const official = cached?.official ?? {};
-	writeOfficialCache({ version: MODELS_DEV_CACHE_VERSION, fetchedAt: now(), ok: false, official });
-	return official;
 }

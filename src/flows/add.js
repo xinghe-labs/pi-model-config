@@ -9,7 +9,7 @@
 // resolved from endpoint metadata, then models.dev, then the model name. The
 // same helpers back both forms, so they cannot drift apart.
 import { API_TYPES, API_VALUES, ZERO_COST } from "../const.js";
-import { USAGE_TEXT, onlyIds, parseOptions, wantsWrite } from "../args.js";
+import { USAGE_TEXT, onlyIds, parseOptions, restrictOptions, wantsAll, wantsWrite } from "../args.js";
 import { inferApi, maskKey, suggestProviderId } from "../infer.js";
 import { backupFile, readModelsConfig, writeJson } from "../json-file.js";
 import { loadOfficialData } from "../official.js";
@@ -52,15 +52,19 @@ async function pickModels(ctx, ids) {
 
 // Plain http sends the API key in the clear. Loopback is exempt; anything else is
 // a real decision, so it is asked rather than assumed.
-async function confirmPlaintext(ctx, baseUrl) {
-	if (!/^http:\/\//i.test(baseUrl)) return true;
+function plaintextRisk(baseUrl) {
+	if (!/^http:\/\//i.test(baseUrl)) return false;
 	let hostname = "";
 	try {
 		hostname = new URL(baseUrl).hostname.toLowerCase();
 	} catch {
 		hostname = "";
 	}
-	if (LOOPBACK.includes(hostname)) return true;
+	return !LOOPBACK.includes(hostname);
+}
+
+async function confirmPlaintext(ctx, baseUrl) {
+	if (!plaintextRisk(baseUrl)) return true;
 	return Boolean(await ctx.ui.confirm("明文传输警告", "该端点使用 http://，API Key 将以明文发送。继续吗？"));
 }
 
@@ -138,6 +142,9 @@ export async function planAdd({ baseUrl: rawUrl, apiKey = "", api, pid, only, fe
 	if (!API_VALUES.includes(chosenApi)) {
 		throw new Error(`未知的 API 类型：${chosenApi}（可选：${API_VALUES.join(", ")}）`);
 	}
+	// A present-but-empty filter is a typo, not "everything": fail instead of
+	// dumping a gateway's whole catalogue into models.json.
+	if (only !== undefined && !only.length) throw new Error("--only 需要至少一个模型 id");
 
 	const providerId = validateProviderId(String(pid ?? "").trim() || suggestProviderId(baseUrl));
 
@@ -215,7 +222,7 @@ export async function applyAdd(ctx, plan) {
 	notify(
 		ctx,
 		`已配置 ${plan.pid}：${plan.resolved.length} 个模型，api=${plan.api}，key=${maskKey(plan.apiKey)}\n` +
-			`${renderResolved(plan.resolved)}\n` +
+			`${renderResolved(plan.resolved, MAX_PLAN_LINES)}\n` +
 			"参数推断来源：端点元数据 > models.dev > 模型名。随时可以手动编辑 models.json，" +
 			"或用 /model-setup check 重新对账。原文件已备份。",
 	);
@@ -232,7 +239,25 @@ export async function applyAdd(ctx, plan) {
 export async function addFromArgs(ctx, { options, positionals, fetchImpl = fetch }) {
 	if (options.flags.has("help")) return notify(ctx, USAGE_TEXT);
 
-	const [url, keyArg] = positionals;
+	// `add <url> --only m1 m2` would silently read m1 as the API key and drop m2;
+	// anything beyond URL + optional key is a typo worth stopping on.
+	const [url, keyArg, ...extra] = positionals;
+	if (extra.length) {
+		return notify(ctx, "参数过多：add 只接受端点 URL 和可选的 Key。--only 的多个模型 id 请用逗号分隔。", "error");
+	}
+	// The plaintext gate lives here too: the interactive flow asks, but a scripted
+	// run has no dialog to ask with, and silently sending a key over http is the
+	// worst default. --all/--yes is the explicit override (see README).
+	const requestedUrl = normalizeBaseUrl(url);
+	if (plaintextRisk(requestedUrl) && !wantsAll(options)) {
+		return notify(
+			ctx,
+			"该端点使用 http://，API Key 将以明文发送。脚本化 add 拒绝执行：" +
+				"请改用 https，或用交互式 add 确认，或明确加 --all 表示接受该风险。",
+			"error",
+		);
+	}
+
 	const apiKey = String(options.values.key ?? keyArg ?? process.env.PI_MODEL_CONFIG_API_KEY ?? "").trim();
 	const only = onlyIds(options);
 
@@ -270,7 +295,12 @@ export async function addFlow(ctx, { fetchImpl = fetch, argv } = {}) {
 	// A scripted invocation must work in print/JSON/RPC mode, where there are no
 	// dialogs at all.
 	if (Array.isArray(argv)) {
-		const options = parseOptions(argv);
+		const options = restrictOptions(
+			"add",
+			parseOptions(argv),
+			new Set(["all", "yes", "apply", "dry-run", "help"]),
+			new Set(["id", "api", "key", "only"]),
+		);
 		return addFromArgs(ctx, { options, positionals: options.positional, fetchImpl });
 	}
 

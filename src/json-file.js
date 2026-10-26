@@ -70,7 +70,9 @@ const BACKUP_KEEP = 5;
 export function backupFile(p) {
 	try {
 		if (!fs.existsSync(p)) return undefined;
-		const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+		// Millisecond precision: two writes in the same second would otherwise
+		// silently overwrite each other's backup.
+		const stamp = new Date().toISOString().replace(/[-:T.]/g, "").slice(0, 17);
 		fs.copyFileSync(p, `${p}.bak-${stamp}`);
 	} catch (err) {
 		return `备份失败（${err instanceof Error ? err.message : String(err)}）`;
@@ -98,11 +100,18 @@ function pruneBackups(p) {
 }
 
 // Atomic write: a same-directory temp file, then rename. An interrupted write
-// leaves the old file intact instead of a truncated one.
+// leaves the old file intact instead of a truncated one. The original file's
+// permissions are preserved: models.json carries API keys, and a restrictive
+// mode (e.g. 0600) must not silently widen to the process default on rewrite.
 export function writeJson(p, data) {
 	const tmp = path.join(path.dirname(p), `.${path.basename(p)}.${process.pid}.${Date.now()}.tmp`);
 	try {
 		fs.writeFileSync(tmp, `${JSON.stringify(data, null, 2)}\n`);
+		try {
+			fs.chmodSync(tmp, fs.statSync(p).mode & 0o777);
+		} catch {
+			/* the target does not exist yet: keep the process default */
+		}
 		fs.renameSync(tmp, p);
 	} catch (err) {
 		try {

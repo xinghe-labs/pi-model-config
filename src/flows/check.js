@@ -7,7 +7,7 @@
 // `p.models`, the second applies it. Mutable state updated during pass one would
 // make the "nothing to report" decision read its own repairs.
 import { backupFile, readModelsConfig, writeJson } from "../json-file.js";
-import { parseOptions } from "../args.js";
+import { parseOptions, restrictOptions } from "../args.js";
 import { loadOfficialData } from "../official.js";
 import { errorMessage, notify, canPrompt } from "../output.js";
 import { modelsJsonPath } from "../paths.js";
@@ -85,7 +85,12 @@ async function selectTargets(ctx, targets) {
 // dialog, which is what a script or an agent driving `pi -p` needs. Without it
 // the flow stays read-only outside an interactive session.
 export async function checkFlow(ctx, { auto = false, argv, fetchImpl = fetch } = {}) {
-	const options = argv ? parseOptions(argv) : { flags: new Set(), values: {} };
+	const options = restrictOptions(
+		"check",
+		argv ? parseOptions(argv) : { flags: new Set(), values: {} },
+		new Set(["fix"]),
+		new Set(),
+	);
 	const fix = !auto && options.flags.has("fix");
 	let config;
 	try {
@@ -145,7 +150,7 @@ export async function checkFlow(ctx, { auto = false, argv, fetchImpl = fetch } =
 
 	notify(ctx, `模型参数对账：\n${report.join("\n\n")}`);
 
-	const repaired = [];
+	const repairPlans = [];
 	for (const plan of findings) {
 		if (!plan.changes.length) continue;
 		if (isRuntimeProvider(plan.pid, runtime)) continue;
@@ -164,11 +169,10 @@ export async function checkFlow(ctx, { auto = false, argv, fetchImpl = fetch } =
 				: false;
 		}
 		if (!apply) continue;
-		plan.provider.models = plan.newModels;
-		repaired.push(plan.pid);
+		repairPlans.push(plan);
 	}
 
-	if (!repaired.length) {
+	if (!repairPlans.length) {
 		if (auto) return;
 		// Three different reasons end here, and "nothing written" alone would read
 		// as a failure in all of them: nothing deviated, the user declined, or
@@ -179,22 +183,53 @@ export async function checkFlow(ctx, { auto = false, argv, fetchImpl = fetch } =
 		} else if (canConsent) {
 			notify(ctx, "已跳过修复，什么都没写入。");
 		} else {
-			notify(ctx, "什么都没写入：修复需要确认。要落地请运行 /model-setup sync --all，或在交互式会话里操作。");
+			notify(
+				ctx,
+				"什么都没写入：修复需要确认。要落地请运行 /model-setup check --fix 或 sync --all，或在交互式会话里操作。",
+			);
 		}
+		return;
+	}
+
+	// Re-read after the confirms: the file may have changed while dialogs were
+	// open, and writing the startup snapshot would discard those edits. Repairs
+	// are applied by model id, so models added in the meantime survive untouched.
+	let fresh;
+	try {
+		fresh = readModelsConfig();
+	} catch (err) {
+		notify(ctx, errorMessage(err), "error");
+		return;
+	}
+	const applied = [];
+	for (const plan of repairPlans) {
+		const provider = fresh.providers?.[plan.pid];
+		if (!provider) {
+			notify(ctx, `${plan.pid} 已不存在，跳过修复。`, "warning");
+			continue;
+		}
+		const fixedById = new Map((plan.newModels ?? []).filter((m) => m?.id).map((m) => [m.id, m]));
+		provider.models = (Array.isArray(provider.models) ? provider.models : []).map(
+			(model) => (model?.id && fixedById.get(model.id)) || model,
+		);
+		applied.push(plan.pid);
+	}
+	if (!applied.length) {
+		notify(ctx, "要修复的供应商都已不存在，什么都没写入。");
 		return;
 	}
 
 	const bakErr = backupFile(modelsJsonPath());
 	if (bakErr) notify(ctx, `${bakErr}，models.json 将在没有备份的情况下写入。`, "warning");
 	try {
-		writeJson(modelsJsonPath(), config);
+		writeJson(modelsJsonPath(), fresh);
 	} catch (err) {
 		notify(ctx, `写入 models.json 失败：${errorMessage(err)}`, "error");
 		return;
 	}
-	notify(ctx, `已写入 models.json（保留备份），修复了 ${repaired.join("、")}。`);
+	notify(ctx, `已写入 models.json（保留备份），修复了 ${applied.join("、")}。`);
 	try {
-		await ctx.modelRegistry.refresh({ providers: repaired });
+		await ctx.modelRegistry.refresh({ providers: applied });
 	} catch (err) {
 		notify(ctx, `已写入，但注册表刷新失败（重启后会加载）：${errorMessage(err)}`, "warning");
 	}

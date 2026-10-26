@@ -8,6 +8,19 @@ import { PROBE_TIMEOUT_MS, PROBE_UA } from "./const.js";
 
 const posInt = (v) => (Number.isInteger(v) && v > 0 ? v : undefined);
 
+// An endpoint that lists the same id twice must not become two identical entries
+// in models.json. First one wins; they carry the same metadata in practice.
+export function uniqueById(list) {
+	const seen = new Set();
+	const out = [];
+	for (const entry of list) {
+		if (!entry?.id || seen.has(entry.id)) continue;
+		seen.add(entry.id);
+		out.push(entry);
+	}
+	return out;
+}
+
 // models.json uses the literal "none" for "no key"; never send it as a bearer.
 export function probeKey(provider) {
 	return provider?.apiKey && provider.apiKey !== "none" ? provider.apiKey : "";
@@ -48,7 +61,7 @@ export async function fetchModelMeta(baseUrl, apiKey, api, { fetchImpl = fetch }
 	let list = [];
 	if (Array.isArray(data?.data)) list = data.data;
 	else if (Array.isArray(data?.models)) list = data.models;
-	return list.map(normalizeListedModel).filter(Boolean);
+	return uniqueById(list.map(normalizeListedModel).filter(Boolean));
 }
 
 export function normalizeListedModel(m) {
@@ -94,6 +107,9 @@ export function normalizeListedModel(m) {
 	}
 	if (Array.isArray(m?.reasoning_supported_efforts)) efforts.push(...m.reasoning_supported_efforts);
 
+	// Effort options are themselves evidence of thinking support: an endpoint that
+	// lists them is offering a reasoning knob even when it spells the flag
+	// differently. That is why efforts.length alone can set reasoning=true here.
 	const reasoning =
 		params.includes("reasoning") || m?.reasoning === true || m?.supports_reasoning === true || efforts.length > 0;
 

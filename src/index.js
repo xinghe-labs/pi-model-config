@@ -61,8 +61,10 @@ export default function modelConfigExtension(pi) {
 	pi.on("session_start", (event, ctx) => {
 		if (event?.reason !== "startup" || autoCheckStarted) return;
 		autoCheckStarted = true;
-		void checkFlow(ctx, { auto: true }).catch(() => {
-			/* a background audit must never surface as an error; run /model-setup check */
+		void checkFlow(ctx, { auto: true }).catch((err) => {
+			// A background audit must never break startup, but a silent catch would
+			// hide real bugs for good: one warning line is the right volume.
+			notify(ctx, `启动模型对账未完成（可手动运行 /model-setup check）：${errorMessage(err)}`, "warning");
 		});
 	});
 

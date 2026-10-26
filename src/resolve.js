@@ -103,6 +103,10 @@ export function resolveModelMeta(id, api, endpointMeta, official) {
 		// sends reasoning_effort at all.
 		if (api === undefined || api === "openai-completions") def.compat = { supportsReasoningEffort: true };
 		const map = thinkingMapFromEfforts(efforts);
+		// The map is written even when every value is null: pi only offers the
+		// xhigh/max thinking levels when a thinkingLevelMap key exists, and an
+		// explicit null on a level means "the endpoint rejected this level" —
+		// which is information, not absence of the feature.
 		if (map) def.thinkingLevelMap = map;
 	}
 
