@@ -1,6 +1,6 @@
 {
 	"name": "pi-model-config",
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"description": "Add a Pi model endpoint from a URL and a key, then keep it in sync: context window, output limit, reasoning, vision and thinking levels are inferred from the endpoint itself, then models.dev, then the model name — then re-added, pruned or repaired on demand.",
 	"type": "module",
 	"license": "MIT",

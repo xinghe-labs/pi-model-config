@@ -19,6 +19,7 @@ import {
 const ENDPOINT = "endpoint";
 const OFFICIAL = "models.dev";
 const GUESS = "guess";
+const COST_OFFICIAL = "cost-official";
 
 // Build a fuzzy alias index once per official-data object. models.dev spells
 // versions differently from many gateways (`v4.1` vs `4.1`, `v4p1`), and
@@ -76,6 +77,7 @@ export const SOURCE_LABEL = {
 	[ENDPOINT]: "endpoint",
 	[OFFICIAL]: "models.dev",
 	[GUESS]: "guessed",
+	[COST_OFFICIAL]: "models.dev list price",
 };
 
 const fieldSource = (hasEndpoint, hasOfficial) => (hasEndpoint ? ENDPOINT : hasOfficial ? OFFICIAL : GUESS);
@@ -87,6 +89,10 @@ export function resolveModelMeta(id, api, endpointMeta, official) {
 	const reasoning = endpointMeta?.reasoning ?? off?.reasoning ?? REASONING_HINTS.test(id);
 	const maxTokens = endpointMeta?.maxTokens ?? off?.output ?? Math.min(DEFAULT_MAX_TOKENS, contextWindow);
 	const efforts = endpointMeta?.efforts ?? off?.efforts;
+	// Vendor list price as the cost floor: endpoints essentially never report
+	// pricing, models.dev sometimes does. A gateway's actual rates differ, so
+	// this is for relative accounting, never a billing claim.
+	const officialCost = off?.cost;
 
 	const def = {
 		id,
@@ -95,7 +101,7 @@ export function resolveModelMeta(id, api, endpointMeta, official) {
 		input: vision ? ["text", "image"] : ["text"],
 		contextWindow,
 		maxTokens,
-		cost: { ...ZERO_COST },
+		cost: officialCost ? { ...officialCost } : { ...ZERO_COST },
 	};
 	if (reasoning) {
 		// For openai-completions, pi auto-detects supportsReasoningEffort from the
@@ -121,6 +127,10 @@ export function resolveModelMeta(id, api, endpointMeta, official) {
 				Array.isArray(endpointMeta?.efforts) && endpointMeta.efforts.length > 0,
 				Array.isArray(off?.efforts) && off.efforts.length > 0,
 			),
+			// cost's only trusted source is the models.dev list price. An endpoint
+			// that reports pricing is a gateway, and a gateway's rates are its own
+			// business — the vendor price is the only one worth writing down.
+			cost: officialCost ? COST_OFFICIAL : undefined,
 		},
 	};
 }
@@ -167,8 +177,16 @@ export function diffModel(existing, resolved) {
 // that were missing) are replaced, so a hand-edited name or an extra compat flag
 // survives the audit.
 export function repairedDef(existing, resolved) {
+	// Cost: only fill a zero/missing value from the list price. A hand-edited
+	// price (a gateway's real rates) must never be "repaired" back to the vendor
+	// price, and an existing nonzero cost is presumed intentional.
+	const existingCost = existing.cost && typeof existing.cost === "object" ? existing.cost : undefined;
+	const hasCustomCost = Number(existingCost?.input) > 0 || Number(existingCost?.output) > 0;
+	const officialCost = resolved.sources?.cost === COST_OFFICIAL ? resolved.def.cost : undefined;
+	if (officialCost && !hasCustomCost) existing.cost = { ...officialCost };
+	else if (!existing.cost || typeof existing.cost !== "object") existing.cost = { ...ZERO_COST };
+
 	const next = { ...existing };
-	if (!next.cost || typeof next.cost !== "object") next.cost = { ...ZERO_COST };
 	if (next.name === undefined) next.name = next.id;
 	const { def, sources } = resolved;
 	if (trusted(sources.contextWindow, existing.contextWindow)) next.contextWindow = def.contextWindow;

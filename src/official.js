@@ -30,7 +30,22 @@ export function normalizeOfficialModel(m) {
 		const canonical = shortModelName(m.canonical_model_id);
 		if (canonical) aliases.push(canonical);
 	}
-	return {
+	// models.dev carries the vendor's list prices (USD per million tokens). Kept
+	// as a fallback: gateways resell at their own rates, so these are a floor for
+	// cost accounting, never a claim about what a request actually bills.
+	const c = m?.cost;
+	const cost =
+		c && typeof c === "object" && Number.isFinite(c.input) && Number.isFinite(c.output)
+			? {
+				input: c.input,
+				output: c.output,
+				cacheRead: Number.isFinite(c.cache_read) ? c.cache_read : 0,
+				cacheWrite: Number.isFinite(c.cache_write) ? c.cache_write : 0,
+			}
+			: undefined;
+	// Omit the key entirely when there is no price data: a present-but-undefined
+	// cost would leak into cache payloads and strict comparisons.
+	const base = {
 		context: Number.isInteger(ctx) && ctx > 0 ? ctx : undefined,
 		output: Number.isInteger(out) && out > 0 ? out : undefined,
 		reasoning: m?.reasoning === true,
@@ -38,6 +53,7 @@ export function normalizeOfficialModel(m) {
 		efforts: [...new Set(efforts)],
 		aliases: [...new Set(aliases)],
 	};
+	return cost === undefined ? base : { ...base, cost };
 }
 
 // Keep short names only. An entry from the provider that actually makes the model

@@ -107,6 +107,56 @@ test("every definition carries cost", () => {
 	}
 });
 
+test("resolveModelMeta falls back to the models.dev list price", () => {
+	const official = {
+		"claude-opus-4-6": {
+			context: 1000000,
+			output: 32000,
+			reasoning: true,
+			image: false,
+			efforts: [],
+			cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+		},
+	};
+	const r = resolveModelMeta("claude-opus-4-6", "openai-completions", { id: "x" }, official);
+	assert.deepEqual(r.def.cost, { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 });
+	assert.equal(r.sources.cost, "cost-official");
+});
+
+test("repairedDef fills zero cost from the list price but never touches a hand-edited one", () => {
+	const official = {
+		"claude-opus-4-6": {
+			context: 1000000,
+			output: 32000,
+			reasoning: false,
+			image: false,
+			efforts: [],
+			cost: { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+		},
+	};
+	const resolved = resolveModelMeta("claude-opus-4-6", "openai-completions", { id: "x" }, official);
+
+	// Zero cost + list price available: filled.
+	const filled = repairedDef(
+		{ id: "claude-opus-4-6", contextWindow: 1000000, maxTokens: 32000, reasoning: false, input: ["text"], cost: { ...ZERO_COST } },
+		resolved,
+	);
+	assert.deepEqual(filled.cost, { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 });
+
+	// Hand-edited price (the gateway's real rates): preserved untouched.
+	const custom = { input: 7.5, output: 30, cacheRead: 0, cacheWrite: 0 };
+	const kept = repairedDef(
+		{ id: "claude-opus-4-6", contextWindow: 1000000, maxTokens: 32000, reasoning: false, input: ["text"], cost: custom },
+		resolved,
+	);
+	assert.deepEqual(kept.cost, custom, "a hand-edited price survives the audit");
+
+	// And the audit must not report a cost "deviation" either way: pricing is not
+	// an audited field, so the diff never mentions it.
+	const drifted = { id: "claude-opus-4-6", contextWindow: 4096, maxTokens: 1024, reasoning: false, input: ["text"], cost: custom };
+	assert.ok(!diffModel(drifted, resolved).some((d) => /cost/i.test(d)), `cost must not be audited: ${diffModel(drifted, resolved).join(", ")}`);
+});
+
 test("reasoning adds compat and a thinking map", () => {
 	const r = resolveModelMeta("claude-opus-4-6", "openai-completions", { id: "x" }, official);
 	assert.equal(r.def.reasoning, true);

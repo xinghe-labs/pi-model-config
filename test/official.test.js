@@ -33,6 +33,7 @@ const apiJson = {
 				reasoning: true,
 				modalities: { input: ["text", "image"] },
 				reasoning_options: [{ type: "effort", values: ["low", "medium", "high"] }],
+				cost: { input: 5, output: 25, cache_read: 0.5, cache_write: 6.25 },
 			},
 		},
 	},
@@ -54,6 +55,7 @@ test("normalizeOfficialModel keeps only what is used", () => {
 		modalities: { input: ["text", "image"] },
 		reasoning_options: [{ type: "effort", values: ["low", "high", "high"] }],
 		canonical_model_id: "deepseek/deepseek-v4.1-flash-1017",
+		cost: { input: 2.5, output: 10, cache_read: 0.25 },
 	});
 	assert.deepEqual(got, {
 		context: 1000000,
@@ -62,6 +64,7 @@ test("normalizeOfficialModel keeps only what is used", () => {
 		image: true,
 		efforts: ["low", "high"],
 		aliases: ["deepseek-v4.1-flash-1017"],
+		cost: { input: 2.5, output: 10, cacheRead: 0.25, cacheWrite: 0 },
 	});
 });
 
@@ -73,6 +76,7 @@ test("normalizeOfficialModel rejects nonsense limits", () => {
 	assert.equal(got.image, false);
 	assert.deepEqual(got.efforts, []);
 	assert.deepEqual(got.aliases, []);
+	assert.equal(got.cost, undefined, "no price data means no cost key at all");
 });
 
 test("extractOfficial lets the real provider win over an aggregator", () => {

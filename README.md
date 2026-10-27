@@ -55,7 +55,10 @@ backed up first.
 The one-liner form is the point of the two newest commands: point it at a gateway
 and it fills in `contextWindow`, `maxTokens`, reasoning, image input and thinking
 levels from the endpoint's own metadata, so nothing has to be typed. Cost is not
-inferred; every model gets zero cost (see "models.dev gotchas" below).
+inferred. Every model's cost falls back to the vendor's list price from
+models.dev when it has one (a gateway's actual rates differ — this is a floor
+for accounting, not a billing claim); hand-edited prices are never overwritten.
+See "models.dev gotchas" below.
 
 ```bash
 # what would be added, and with which numbers — writes nothing
@@ -373,8 +376,10 @@ fake `fetch`, so nothing touches the network or your real `models.json`.
   a model models.dev has never seen get name-based defaults, which are marked
   `guessed` in the report. Check them, then edit `models.json` by hand.
 - `models.json` is the only format written. Providers Pi ships are not modified.
-- No cost data is inferred: every model is written with zero cost. Use a spend
-  guard if you need budgeting.
+- Cost: filled from models.dev's vendor list price when the model has one, so
+  cost accounting is a floor rather than all zeros. A gateway's real rates
+differ from list prices, and a hand-edited `cost` is never overwritten — write
+  your gateway's actual rates into models.json and the audit will keep them.
 - Deleted or vanished models are never removed automatically.
 
 ## Acknowledgments
