@@ -112,7 +112,10 @@ jobs:
           // Pre-existing content, for two reasons: a backup is only written when the
           // file exists (a missing file must not produce one), and a provider that
           // was already configured must survive the add.
-          fs.writeFileSync(path.join(agent, 'models.json'), '{"providers":{"keep":{"baseUrl":"https://k.example.com/v1"}}}');
+          // JSON.stringify, not a quoted literal: this script sits inside bash
+          // double quotes, and a quote character in a literal would be eaten by
+          // the shell before node ever sees it.
+          fs.writeFileSync(path.join(agent, 'models.json'), JSON.stringify({ providers: { keep: { baseUrl: 'https://k.example.com/v1' } } }));
 
           const entry = pathToFileURL('./node_modules/pi-model-config/src/index.js').href;
 
@@ -128,7 +131,6 @@ jobs:
             if (typeof c.def.handler !== 'function') throw new Error('command has no handler: ' + c.name);
             if (!c.def.description) throw new Error('command has no description: ' + c.name);
           }
-          
 
           // A real flow against a scripted UI, with models.dev answering empty and
           // the endpoint answering one model. Nothing here touches the network.

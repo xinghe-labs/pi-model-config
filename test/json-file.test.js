@@ -176,6 +176,13 @@ test("backupFile keeps only the newest five timestamped backups", (t) => {
 });
 
 test("writeJson preserves the original file's permissions", (t) => {
+	if (process.platform === "win32") {
+		// NTFS has no POSIX permission bits; chmod only toggles read-only there, so
+		// the premise of this test (a restrictive mode survives a rewrite) cannot
+		// even be set up. The atomic-rename behavior is still covered above.
+		t.skip("no POSIX permission bits on Windows");
+		return;
+	}
 	const dir = withAgentDir(t);
 	const target = path.join(dir, "models.json");
 	fs.writeFileSync(target, "{}");
