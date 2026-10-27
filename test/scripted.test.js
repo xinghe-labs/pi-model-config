@@ -12,6 +12,7 @@ import test from "node:test";
 import { onlyIds, parseOptions, wantsAll, wantsWrite } from "../src/args.js";
 import { checkFlow } from "../src/flows/check.js";
 import { modelsFlow } from "../src/flows/models.js";
+import { editFlow } from "../src/flows/edit.js";
 import { removeFlow } from "../src/flows/remove.js";
 import { addFlow, planAdd } from "../src/flows/add.js";
 import { applySync, planSync, renderSyncPlan, syncFlow } from "../src/flows/sync.js";
@@ -842,6 +843,143 @@ test("sync --help prints the usage", async (t) => {
 	await syncFlow(ctx, { argv: ["--help"] });
 	assert.match(text(ctx), /用法：/);
 	assert.match(text(ctx), /\/model-setup sync/);
+});
+
+// ---- edit ------------------------------------------------------------------
+
+const EDIT_BASE = "https://new-gw.example.com/v1";
+
+function editFetch({ ok = true, status = 200, ids = ["m"] } = {}) {
+	return async (url) => {
+		if (String(url).includes("models.dev")) return { ok: true, json: async () => ({}) };
+		if (!ok) return { ok: false, status };
+		return { ok: true, json: async () => ({ data: ids.map((id) => ({ id })) }) };
+	};
+}
+
+test("edit --all updates only the given fields and keeps the model list", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "keep-me", contextWindow: 131072, maxTokens: 8192, reasoning: true, input: ["text"], cost: ZERO }]) });
+	const ctx = scriptCtx();
+
+	await editFlow(ctx, { argv: ["gw", "--url", EDIT_BASE, "--key", "sk-new", "--all"], fetchImpl: editFetch() });
+
+	const p = written(dir).providers.gw;
+	assert.equal(p.baseUrl, EDIT_BASE);
+	assert.equal(p.apiKey, "sk-new");
+	assert.equal(p.api, "openai-completions", "api untouched");
+	assert.deepEqual(p.models.map((m) => m.id), ["keep-me"], "the model list is not replaced");
+	assert.match(text(ctx), /已修改 gw/);
+	assert.match(text(ctx), /模型列表未动/);
+});
+
+test("edit without --all prints the plan and writes nothing", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", cost: ZERO }]) });
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+	const ctx = printCtx(t);
+
+	await editFlow(ctx, { argv: ["gw", "--url", EDIT_BASE], fetchImpl: editFetch() });
+
+	assert.match(text(ctx), /baseUrl: https:\/\/gw\.example\.com\/v1 ->/);
+	assert.match(text(ctx), /什么都没写入/);
+	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
+});
+
+test("edit refuses a dead endpoint and writes nothing", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", cost: ZERO }]) });
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+	const ctx = scriptCtx();
+
+	await editFlow(ctx, { argv: ["gw", "--url", "https://dead.example.com/v1", "--all"], fetchImpl: editFetch({ ok: false, status: 503 }) });
+
+	assert.match(text(ctx), /新端点无法访问（HTTP 503）：什么都没改/);
+	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
+});
+
+test("edit of key only does not probe and applies immediately", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", cost: ZERO }]) });
+	const ctx = scriptCtx();
+	let probed = 0;
+	const fetchImpl = async (url) => {
+		if (!String(url).includes("models.dev")) probed += 1;
+		return { ok: true, json: async () => ({ data: [{ id: "m" }] }) };
+	};
+
+	await editFlow(ctx, { argv: ["gw", "--key", "sk-rotated", "--all"], fetchImpl });
+
+	assert.equal(written(dir).providers.gw.apiKey, "sk-rotated");
+	assert.equal(probed, 0, "a key-only edit has nothing to verify at the endpoint");
+});
+
+test("edit --id renames the provider and refuses occupied ids", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, {
+		gw: provider([{ id: "m", cost: ZERO }]),
+		other: provider([{ id: "n", cost: ZERO }]),
+	});
+	const ctx = scriptCtx();
+
+	await editFlow(ctx, { argv: ["gw", "--id", "renamed", "--all"], fetchImpl: editFetch() });
+
+	const providers = written(dir).providers;
+	assert.equal(providers.gw, undefined);
+	assert.equal(providers.renamed.baseUrl, "https://gw.example.com/v1");
+	assert.ok(providers.other, "the other provider survived");
+
+	const dir2 = withAgentDir(t);
+	seed(dir2, {
+		gw: provider([{ id: "m", cost: ZERO }]),
+		other: provider([{ id: "n", cost: ZERO }]),
+	});
+	const busy = scriptCtx();
+	await editFlow(busy, { argv: ["gw", "--id", "other", "--all"], fetchImpl: editFetch() });
+	assert.match(text(busy), /供应商 id 已被占用：other/);
+});
+
+test("edit refuses unknown provider, unknown flag and no-op edits", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", cost: ZERO }]) });
+
+	const nope = scriptCtx();
+	await editFlow(nope, { argv: ["nope", "--url", EDIT_BASE, "--all"], fetchImpl: editFetch() });
+	assert.match(text(nope), /models\.json 里没有这个供应商：nope/);
+
+	const flag = scriptCtx();
+	await assert.rejects(() => editFlow(flag, { argv: ["gw", "--only", "x"] }), /edit 不支持选项：--only/);
+
+	const noop = scriptCtx();
+	await editFlow(noop, { argv: ["gw", "--api", "openai-completions", "--all"], fetchImpl: editFetch() });
+	assert.match(text(noop), /没有要修改的字段/);
+});
+
+test("scripted edit refuses a plaintext endpoint and interactive edit asks", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", cost: ZERO }]) });
+	const before = fs.readFileSync(path.join(dir, "models.json"), "utf8");
+
+	const scripted = scriptCtx();
+	await editFlow(scripted, { argv: ["gw", "--url", "http://plain.example.com/v1", "--all"], fetchImpl: editFetch() });
+	assert.match(text(scripted), /脚本化 edit 拒绝执行/);
+	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before);
+
+	const interactive = {
+		log: [], cwd: dir, hasUI: true, model: {}, modelRegistry: { refresh: async () => {} },
+		ui: {
+			notify: (text, level) => interactive.log.push({ text, level }),
+			select: async (_title, items) => (items.includes("端点地址") ? "端点地址" : items.find((i) => i.startsWith("— 完成")) ?? items[0]),
+			input: async () => "http://plain.example.com/v1",
+			confirm: async (title) => {
+				interactive.log.push({ text: `[confirm] ${title}` });
+				return true;
+			},
+		},
+	};
+	await editFlow(interactive, { fetchImpl: editFetch() });
+	assert.match(text(interactive), /\[confirm\] 明文传输警告/);
+	assert.equal(written(dir).providers.gw.baseUrl, "http://plain.example.com/v1", "the user accepted the risk");
 });
 
 // ---- concurrent edits between plan and apply -----------------------------

@@ -7,6 +7,7 @@
 //
 //   /model-setup             menu
 //   /model-setup add         add or replace a provider
+//   /model-setup edit        change one provider's URL / key / api / id
 //   /model-setup check       audit models.json against the live endpoint and models.dev
 //   /model-setup list        show configured providers
 //   /model-setup remove      delete a provider
@@ -15,6 +16,7 @@
 // writes with --fix. `add` and `remove` need dialogs.
 import { checkFlow } from "./flows/check.js";
 import { addFlow } from "./flows/add.js";
+import { editFlow } from "./flows/edit.js";
 import { listFlow } from "./flows/list.js";
 import { removeFlow } from "./flows/remove.js";
 import { modelsFlow } from "./flows/models.js";
@@ -25,6 +27,7 @@ const USAGE = [
 	"/model-setup                    菜单",
 	"/model-setup add                交互式添加供应商（问五个问题）",
 	"/model-setup add <url> <key>    只给 URL 和 Key，参数自动推断",
+	"/model-setup edit               修改一个供应商的 URL / Key / api / id（模型列表不动）",
 	"/model-setup sync               补齐新模型 / 删掉失效模型 / 修参数",
 	"/model-setup check [--fix]      对账模型参数；--fix 不询问直接修复全部端点",
 	"/model-setup list               列出已配置的供应商",
@@ -35,9 +38,10 @@ const USAGE = [
 	"全部选项见 `/model-setup add --help`。",
 ].join("\n");
 
-const SUBCOMMANDS = ["add", "check", "list", "models", "remove", "sync"];
+const SUBCOMMANDS = ["add", "check", "edit", "list", "models", "remove", "sync"];
 const MENU = [
 	"添加端点",
+	"修改端点（URL / Key / api / id）",
 	"与端点同步模型列表",
 	"检查 / 修复模型参数",
 	"查看已配置的端点",
@@ -76,6 +80,7 @@ export default function modelConfigExtension(pi) {
 			if (sub === "remove") return await removeFlow(ctx);
 			if (sub === "models") return await modelsFlow(ctx, { argv: rest });
 			if (sub === "sync") return await syncFlow(ctx, { argv: rest });
+			if (sub === "edit") return await editFlow(ctx, { argv: rest.length ? rest : undefined });
 			if (sub === "add") return await addFlow(ctx, { argv: rest.length ? rest : undefined });
 			if (!canPrompt(ctx)) {
 				// Non-interactive: there is no menu to show, so print the usage rather
@@ -85,6 +90,7 @@ export default function modelConfigExtension(pi) {
 			}
 			const action = await ctx.ui.select("模型端点配置", MENU);
 			if (action === undefined) return;
+			if (action === "修改端点（URL / Key / api / id）") return await editFlow(ctx);
 			if (action === "与端点同步模型列表") return await syncFlow(ctx);
 			if (action === "检查 / 修复模型参数") return await checkFlow(ctx);
 			if (action === "查看已配置的端点") return await listFlow(ctx);

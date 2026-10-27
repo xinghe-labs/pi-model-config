@@ -9,7 +9,7 @@
 // described"; without either, the flow prints its plan and touches nothing.
 
 const BOOLEAN = new Set(["all", "yes", "apply", "dry-run", "no-prune", "help", "fix"]);
-const VALUED = new Set(["only", "api", "id", "key"]);
+const VALUED = new Set(["only", "api", "id", "key", "url"]);
 
 export const USAGE_TEXT = [
 	"用法：",

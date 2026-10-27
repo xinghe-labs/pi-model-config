@@ -16,6 +16,7 @@ pi install npm:pi-model-config
 /model-setup                          菜单
 /model-setup add                      添加或替换一个供应商（五个问题）
 /model-setup add <url> <key>          只给 URL 和 Key，不问问题
+/model-setup edit                     修改一个供应商的 URL / Key / api / id
 /model-setup sync                     补齐新模型 / 删掉失效模型 / 修参数
 /model-setup check [--fix]            只对账参数（--fix 不询问直接修复）
 /model-setup list                     列出已配置的供应商
@@ -109,6 +110,30 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 - 拉取成功缓存 6 小时；拉取**失败**缓存 15 分钟。没有这个负缓存，离线机器每次 add /
   check / 启动都要空等 15 秒超时。失败时保留上一次成功的数据 —— 掉线是降级到旧数据，不是降级到没有。
 - 缓存位置：`~/.pi/agent/model-config-modelsdev-cache.json`。
+
+## `/model-setup edit`
+
+改一个供应商的连接字段，不动其他任何东西。与 `add` 的区别：`add` 是整表替换（重新探测、重写模型列表），
+`edit` 只改你给出的字段，模型列表原样保留。
+
+```bash
+# 交互式：选供应商，逐项问要改什么（回车跳过）
+/model-setup edit
+
+# 脚本化：先看计划，确认再加 --all
+/model-setup edit gw --url https://new-gw.example.com/v1 --key sk-new
+/model-setup edit gw --url https://new-gw.example.com/v1 --all
+
+# 重命名（同步处理 enabledModels 里的旧条目）
+/model-setup edit gw --id new-name --all
+```
+
+规则：
+
+- **改 baseUrl / api 会先探测新端点**：探测失败就不写入 —— 换错地址不会把能用配置改成不能用的；
+- **改 key 不探测**（端点对 key 的校验在下次 sync/check 时自然发生）；
+- 脚本化形式遇到非本机 `http://` 端点拒绝执行（与 add 同一闸门）；
+- baseUrl / apiKey 的修改无需重启：另一个扩展（如 sub-models）每次刷新都会重读 models.json。
 
 ## `/model-setup sync`
 

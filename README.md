@@ -18,6 +18,7 @@ not loaded until Pi re-reads its package list.
 /model-setup                          menu
 /model-setup add                      add or replace a provider (five questions)
 /model-setup add <url> <key>          add from a URL and key, no questions
+/model-setup edit                     change one provider's URL / key / api / id
 /model-setup sync                     add new / remove gone / repair drifting models
 /model-setup check [--fix]            reconcile model parameters (--fix applies repairs without asking)
 /model-setup list                     show configured providers
@@ -122,6 +123,36 @@ never heard of the model, a hand-tuned entry is left alone.
   timeout on every add, check and startup. A failure keeps the last successful
   payload, so losing the network downgrades to stale data rather than to nothing.
 - The cache lives at `~/.pi/agent/model-config-modelsdev-cache.json`.
+
+## `/model-setup edit`
+
+Change one provider's connection fields without touching anything else. Where
+`add` is a whole-table replace (re-probes, rewrites the model list), `edit`
+updates only the fields you name and keeps the model list as-is.
+
+```bash
+# interactive: pick a provider, then answer per field (Enter keeps a field)
+/model-setup edit
+
+# scripted: inspect the plan first, add --all when it looks right
+/model-setup edit gw --url https://new-gw.example.com/v1 --key sk-new
+/model-setup edit gw --url https://new-gw.example.com/v1 --all
+
+# rename (handles the old id's enabledModels entries)
+/model-setup edit gw --id new-name --all
+```
+
+Rules:
+
+- **A changed baseUrl or api probes the new endpoint first**: a failed probe
+  writes nothing, so a mistyped URL cannot turn a working configuration into a
+  broken one;
+- **A key-only edit does not probe** (the endpoint validates the key the next
+  time sync or check runs);
+- The scripted form refuses a non-loopback `http://` endpoint (same gate as
+  `add`);
+- baseUrl / apiKey changes need no restart: another extension (sub-models and
+  the like) re-reads models.json on every refresh.
 
 ## `/model-setup sync`
 
