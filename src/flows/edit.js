@@ -1,4 +1,4 @@
-// `/model-setup edit` — change one provider's connection fields without
+// `/model-config edit` — change one provider's connection fields without
 // touching anything else.
 //
 // The difference from `add`: add is a whole-table replace (models are re-probed
@@ -8,9 +8,9 @@
 // rule check and sync already live by. A failed probe never deletes models.
 //
 // Forms:
-//   /model-setup edit                 pick a provider, then edit field by field
-//   /model-setup edit <pid>           straight into that provider
-//   /model-setup edit <pid> --url ... --key ... --api ... [--id new] [--all]
+//   /model-config edit                 pick a provider, then edit field by field
+//   /model-config edit <pid>           straight into that provider
+//   /model-config edit <pid> --url ... --key ... --api ... [--id new] [--all]
 //
 // Without --all the scripted form prints the planned diff and writes nothing.
 // Renaming via --id also offers to clean the old provider's entries out of
@@ -30,9 +30,9 @@ const LOOPBACK = ["localhost", "127.0.0.1", "::1", "[::1]"];
 
 const EDIT_USAGE = [
 	"用法：",
-	"  /model-setup edit                选一个供应商，逐项修改（回车跳过）",
-	"  /model-setup edit <pid>          直接进入该供应商",
-	"  /model-setup edit <pid> [选项]",
+	"  /model-config edit                选一个供应商，逐项修改（回车跳过）",
+	"  /model-config edit <pid>          直接进入该供应商",
+	"  /model-config edit <pid> [选项]",
 	"      --url <url>        新的端点地址",
 	"      --key <key>        新的 API Key",
 	"      --api <type>       openai-completions | openai-responses | anthropic-messages | google-generative-ai",

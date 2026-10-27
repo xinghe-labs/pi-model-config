@@ -1,16 +1,16 @@
 // pi-model-config — add a model endpoint to Pi in five answers.
 //
-// `/model-setup` writes models.json, but it is not an editor: the point is that
+// `/model-config` writes models.json, but it is not an editor: the point is that
 // context window, output limit, reasoning, image input and thinking levels are
 // *derived* (endpoint metadata > models.dev > model name) and can be re-audited
 // later against the same sources.
 //
-//   /model-setup             menu
-//   /model-setup add         add or replace a provider
-//   /model-setup edit        change one provider's URL / key / api / id
-//   /model-setup check       audit models.json against the live endpoint and models.dev
-//   /model-setup list        show configured providers
-//   /model-setup remove      delete a provider
+//   /model-config             menu
+//   /model-config add         add or replace a provider
+//   /model-config edit        change one provider's URL / key / api / id
+//   /model-config check       audit models.json against the live endpoint and models.dev
+//   /model-config list        show configured providers
+//   /model-config remove      delete a provider
 //
 // `check` and `list` work without a UI (their report goes to stdout); check only
 // writes with --fix. `add` and `remove` need dialogs.
@@ -24,18 +24,18 @@ import { syncFlow } from "./flows/sync.js";
 import { canPrompt, errorMessage, notify } from "./output.js";
 
 const USAGE = [
-	"/model-setup                    菜单",
-	"/model-setup add                交互式添加供应商（问五个问题）",
-	"/model-setup add <url> <key>    只给 URL 和 Key，参数自动推断",
-	"/model-setup edit               修改一个供应商的 URL / Key / api / id（模型列表不动）",
-	"/model-setup sync               补齐新模型 / 删掉失效模型 / 修参数",
-	"/model-setup check [--fix]      对账模型参数；--fix 不询问直接修复全部端点",
-	"/model-setup list               列出已配置的供应商",
-	"/model-setup remove             删除一个供应商",
-	"/model-setup models <pid>       删除该供应商里不要的模型（记入忽略名单）",
+	"/model-config                    菜单",
+	"/model-config add                交互式添加供应商（问五个问题）",
+	"/model-config add <url> <key>    只给 URL 和 Key，参数自动推断",
+	"/model-config edit               修改一个供应商的 URL / Key / api / id（模型列表不动）",
+	"/model-config sync               补齐新模型 / 删掉失效模型 / 修参数",
+	"/model-config check [--fix]      对账模型参数；--fix 不询问直接修复全部端点",
+	"/model-config list               列出已配置的供应商",
+	"/model-config remove             删除一个供应商",
+	"/model-config models <pid>       删除该供应商里不要的模型（记入忽略名单）",
 	"",
 	"add 和 sync 默认只打印计划，加 --all 或 --only <ids> 才写盘。",
-	"全部选项见 `/model-setup add --help`。",
+	"全部选项见 `/model-config add --help`。",
 ].join("\n");
 
 const SUBCOMMANDS = ["add", "check", "edit", "list", "models", "remove", "sync"];
@@ -49,8 +49,8 @@ const MENU = [
 	"管理模型列表（删除不要的模型）",
 ];
 
-// A first-word match, but only when the whole input is a subcommand: `/model-setup
-// list` is a command, `/model-setup https://x/v1` is a URL to add.
+// A first-word match, but only when the whole input is a subcommand: `/model-config
+// list` is a command, `/model-config https://x/v1` is a URL to add.
 export function parseArgs(rawArgs) {
 	const words = (rawArgs ?? "").trim().split(/\s+/).filter(Boolean);
 	const first = (words[0] ?? "").toLowerCase();
@@ -68,7 +68,7 @@ export default function modelConfigExtension(pi) {
 		void checkFlow(ctx, { auto: true }).catch((err) => {
 			// A background audit must never break startup, but a silent catch would
 			// hide real bugs for good: one warning line is the right volume.
-			notify(ctx, `启动模型对账未完成（可手动运行 /model-setup check）：${errorMessage(err)}`, "warning");
+			notify(ctx, `启动模型对账未完成（可手动运行 /model-config check）：${errorMessage(err)}`, "warning");
 		});
 	});
 
@@ -98,19 +98,19 @@ export default function modelConfigExtension(pi) {
 			if (action === "管理模型列表（删除不要的模型）") return await modelsFlow(ctx);
 			return await addFlow(ctx);
 		} catch (err) {
-			notify(ctx, `model-setup failed: ${errorMessage(err)}`, "error");
+			notify(ctx, `model-config failed: ${errorMessage(err)}`, "error");
 		}
 	};
 
-	pi.registerCommand("model-setup", {
+	pi.registerCommand("model-config", {
 		description:
-			"Add a model endpoint from a URL and key and infer model capabilities (endpoint metadata > models.dev > name), then sync or check: add / sync / check / list / remove",
+			"Add a model endpoint from a URL and key and infer model capabilities (endpoint metadata > models.dev > name), then sync or check: add / edit / sync / check / list / remove",
 		handler,
 	});
-	// The name this command shipped under before it was packaged. Kept registered so
-	// existing habits keep working, but /model-setup is the documented one.
-	pi.registerCommand("model-config", {
-		description: "Alias for /model-setup",
+	// The newer, shorter name this command is documented under. Kept registered so
+	// existing muscle memory keeps working, but /model-config is the primary one.
+	pi.registerCommand("model-setup", {
+		description: "Alias for /model-config",
 		handler,
 	});
 }

@@ -107,7 +107,7 @@ test("the extension registers both command names and one startup hook", () => {
 		registerCommand: (name, def) => commands.push({ name, def }),
 		on: (event, handler) => events.push({ event, handler }),
 	});
-	assert.deepEqual(commands.map((c) => c.name), ["model-setup", "model-config"]);
+	assert.deepEqual(commands.map((c) => c.name), ["model-config", "model-setup"]);
 	for (const { def } of commands) {
 		assert.equal(typeof def.handler, "function");
 		assert.ok(def.description.length > 10);

@@ -1,4 +1,4 @@
-// `/model-setup sync` — make models.json's model list match what the endpoint
+// `/model-config sync` — make models.json's model list match what the endpoint
 // currently serves: add what appeared, remove what disappeared, repair what
 // drifted.
 //

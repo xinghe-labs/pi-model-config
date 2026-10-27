@@ -13,15 +13,15 @@ pi install npm:pi-model-config
 安装后请新开一个会话（或 `/reload`）：会话进行中安装的包，要等 Pi 重新读取包列表才会加载。
 
 ```text
-/model-setup                          菜单
-/model-setup add                      添加或替换一个供应商（五个问题）
-/model-setup add <url> <key>          只给 URL 和 Key，不问问题
-/model-setup edit                     修改一个供应商的 URL / Key / api / id
-/model-setup sync                     补齐新模型 / 删掉失效模型 / 修参数
-/model-setup check [--fix]            只对账参数（--fix 不询问直接修复）
-/model-setup list                     列出已配置的供应商
-/model-setup remove                   删除一个供应商
-/model-setup models <pid>              删除不要的模型
+/model-config                          菜单
+/model-config add                      添加或替换一个供应商（五个问题）
+/model-config add <url> <key>          只给 URL 和 Key，不问问题
+/model-config edit                     修改一个供应商的 URL / Key / api / id
+/model-config sync                     补齐新模型 / 删掉失效模型 / 修参数
+/model-config check [--fix]            只对账参数（--fix 不询问直接修复）
+/model-config list                     列出已配置的供应商
+/model-config remove                   删除一个供应商
+/model-config models <pid>              删除不要的模型
 ```
 
 `/model-config` 仍注册为别名。
@@ -32,13 +32,13 @@ pi install npm:pi-model-config
 
 ```bash
 # 先看会加什么、参数是多少 —— 一个字节都不写
-/model-setup add https://gw.example.com/v1 sk-...
+/model-config add https://gw.example.com/v1 sk-...
 
 # 真的从这个端点加三个模型
-/model-setup add https://gw.example.com/v1 sk-... --only gpt-4o,deepseek-v4-pro
+/model-config add https://gw.example.com/v1 sk-... --only gpt-4o,deepseek-v4-pro
 
 # 端点变了：补齐新模型、删掉已下线的
-/model-setup sync --all
+/model-config sync --all
 ```
 
 `add` 和 `sync` 默认**只打印计划、不写盘**，必须给 `--all` 或 `--only` 才落地。
@@ -84,7 +84,7 @@ pi install npm:pi-model-config
   自定义网关猜不出来，于是**永远不发** `reasoning_effort`。推理模型就这么不推理地跑着。
 - **`thinkingLevelMap` 缺失或写错** —— 端点不支持的档位留在选择器里，支持的档位反而看不到。
 
-没有任何东西校验这些。`/model-setup add` 只问 URL、协议类型、API Key、模型、供应商 ID，
+没有任何东西校验这些。`/model-config add` 只问 URL、协议类型、API Key、模型、供应商 ID，
 剩下全部推断。
 
 ## 参数从哪来
@@ -111,21 +111,21 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
   check / 启动都要空等 15 秒超时。失败时保留上一次成功的数据 —— 掉线是降级到旧数据，不是降级到没有。
 - 缓存位置：`~/.pi/agent/model-config-modelsdev-cache.json`。
 
-## `/model-setup edit`
+## `/model-config edit`
 
 改一个供应商的连接字段，不动其他任何东西。与 `add` 的区别：`add` 是整表替换（重新探测、重写模型列表），
 `edit` 只改你给出的字段，模型列表原样保留。
 
 ```bash
 # 交互式：选供应商，逐项问要改什么（回车跳过）
-/model-setup edit
+/model-config edit
 
 # 脚本化：先看计划，确认再加 --all
-/model-setup edit gw --url https://new-gw.example.com/v1 --key sk-new
-/model-setup edit gw --url https://new-gw.example.com/v1 --all
+/model-config edit gw --url https://new-gw.example.com/v1 --key sk-new
+/model-config edit gw --url https://new-gw.example.com/v1 --all
 
 # 重命名（同步处理 enabledModels 里的旧条目）
-/model-setup edit gw --id new-name --all
+/model-config edit gw --id new-name --all
 ```
 
 规则：
@@ -135,7 +135,7 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 - 脚本化形式遇到非本机 `http://` 端点拒绝执行（与 add 同一闸门）；
 - baseUrl / apiKey 的修改无需重启：另一个扩展（如 sub-models）每次刷新都会重读 models.json。
 
-## `/model-setup sync`
+## `/model-config sync`
 
 让 `models` 列表与端点当前的实际情况一致：
 
@@ -158,7 +158,7 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 `--no-prune` 保留端点已下线的模型，但仍会新增和修复。`--only <ids>` 只限制**新增**哪些模型，
 不限制删除 —— 否则一次局部同步就会留下过期条目。
 
-## `/model-setup models`
+## `/model-config models`
 
 手动管理某个供应商的模型列表：挑出不要的模型、确认、完成。删除的模型会记入
 `model-config.json` 的 `hiddenModels` 忽略名单，之后 `sync` 不会再把它们补回来
@@ -166,17 +166,17 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 
 ```bash
 # 交互式：选供应商，再逐个挑要删的模型
-/model-setup models
+/model-config models
 
 # 脚本化：直接删这些，不弹对话框
-/model-setup models my-gateway --only old-model,another-model
+/model-config models my-gateway --only old-model,another-model
 ```
 
 想恢复某个被删的模型：跑 `sync --only <id>`（会同时把它从忽略名单移除），
 或从 `model-config.json` 的 `hiddenModels` 里删掉对应 id 再跑 `sync --all`。
 菜单路径的 `sync` 发现忽略名单里的模型端点仍在提供时，也会先问要不要恢复。
 
-## `/model-setup check`
+## `/model-config check`
 
 把 `models.json` 里的静态 `models` 与端点、models.dev 对账，并询问是否写回修正。
 
@@ -192,7 +192,7 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 它是**尽力而为、不阻塞启动**的：启动永远不会为了等一次网络探测而卡住；而立刻结束的会话
 （比如 `pi -p "..."`）可能在审计跑完前就退出了。被中断的审计不会留下半截状态 ——
 每次写入都是原子的、要么全成要么全不成 —— 它只是什么都不做，等下一个会话再说。
-需要确定性请用 `/model-setup check`。
+需要确定性请用 `/model-config check`。
 
 ## 非交互模式
 

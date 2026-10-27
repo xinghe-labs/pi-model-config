@@ -1,4 +1,4 @@
-// The scripted forms: `/model-setup add <url> <key>` and `/model-setup sync`.
+// The scripted forms: `/model-config add <url> <key>` and `/model-config sync`.
 //
 // These are the paths an agent or a shell drives, so the guarantees they carry
 // are different from the interactive ones: nothing is written without --all or
@@ -505,7 +505,7 @@ test("the menu path asks before restoring hidden models", async (t) => {
 
 test("check reports in print mode instead of crashing on a missing dialog", async (t) => {
 	// ctx.ui.confirm used to be called unconditionally off the startup path, so
-	// `pi -p "/model-setup check"` threw a TypeError right after printing the report.
+	// `pi -p "/model-config check"` threw a TypeError right after printing the report.
 	const dir = withAgentDir(t);
 	seed(dir, {
 		gw: provider([{ id: "m", contextWindow: 4096, maxTokens: 1024, reasoning: false, input: ["text"], cost: ZERO }]),
@@ -609,7 +609,7 @@ test("the menu path asks for consent and then writes", async (t) => {
 	assert.deepEqual(written(dir).providers.gw.models.map((m) => m.id), ["new-model"]);
 });
 
-test("typing /model-setup sync with no arguments also asks for consent", async (t) => {
+test("typing /model-config sync with no arguments also asks for consent", async (t) => {
 	// argv arrives as an empty array when the user types the subcommand with no
 	// arguments — that is a menu-like request, not a scripted one, so the consent
 	// dialog is the writer flag here too.
@@ -842,7 +842,7 @@ test("sync --help prints the usage", async (t) => {
 	const ctx = scriptCtx();
 	await syncFlow(ctx, { argv: ["--help"] });
 	assert.match(text(ctx), /用法：/);
-	assert.match(text(ctx), /\/model-setup sync/);
+	assert.match(text(ctx), /\/model-config sync/);
 });
 
 // ---- edit ------------------------------------------------------------------

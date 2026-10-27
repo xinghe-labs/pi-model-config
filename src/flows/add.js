@@ -1,7 +1,7 @@
-// `/model-setup add` — add or replace one endpoint.
+// `/model-config add` — add or replace one endpoint.
 //
 // Interactive form: five questions (URL, API type, key, models, provider id).
-// Scripted form:   `/model-setup add <url> [<key>] [--id x] [--api y] [--all|--only a,b]`
+// Scripted form:   `/model-config add <url> [<key>] [--id x] [--api y] [--all|--only a,b]`
 //                  With neither --all nor --only it prints the plan and writes
 //                  nothing, so a gateway's 200 models are never dumped in blind.
 //
@@ -224,7 +224,7 @@ export async function applyAdd(ctx, plan) {
 		`已配置 ${plan.pid}：${plan.resolved.length} 个模型，api=${plan.api}，key=${maskKey(plan.apiKey)}\n` +
 			`${renderResolved(plan.resolved, MAX_PLAN_LINES)}\n` +
 			"参数推断来源：端点元数据 > models.dev > 模型名。随时可以手动编辑 models.json，" +
-			"或用 /model-setup check 重新对账。原文件已备份。",
+			"或用 /model-config check 重新对账。原文件已备份。",
 	);
 
 	const warn = readUserConfig().error;

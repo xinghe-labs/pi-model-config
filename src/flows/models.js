@@ -1,4 +1,4 @@
-// `/model-setup models` — manage one provider's model list by hand: remove
+// `/model-config models` — manage one provider's model list by hand: remove
 // models you do not want, regardless of what the endpoint still serves.
 //
 // The catch: `sync` reconciles against the endpoint, so a model deleted here
@@ -7,9 +7,9 @@
 // deleting a model is a decision, not something an audit undoes.
 //
 // Forms:
-//   /model-setup models              pick a provider, then pick models to remove
-//   /model-setup models <pid>        same, straight into that provider
-//   /model-setup models <pid> --only a,b   remove exactly those, no dialogs
+//   /model-config models              pick a provider, then pick models to remove
+//   /model-config models <pid>        same, straight into that provider
+//   /model-config models <pid> --only a,b   remove exactly those, no dialogs
 //
 // Restoring a hidden model: run sync --only <id>, or delete its id from
 // hiddenModels in model-config.json (or the whole key), then run sync --all.
@@ -107,9 +107,9 @@ export async function modelsFlow(ctx, { argv, fetchImpl } = {}) {
 			ctx,
 			[
 				"用法：",
-				"  /model-setup models                选供应商，再挑要删除的模型",
-				"  /model-setup models <pid>          直接进入该供应商",
-				"  /model-setup models <pid> --only a,b   无对话框，直接删除这些",
+				"  /model-config models                选供应商，再挑要删除的模型",
+				"  /model-config models <pid>          直接进入该供应商",
+				"  /model-config models <pid> --only a,b   无对话框，直接删除这些",
 				"",
 				"删除的模型会记入忽略名单（model-config.json 的 hiddenModels），",
 				"sync 不会再把它们补回来。",
@@ -136,7 +136,7 @@ export async function modelsFlow(ctx, { argv, fetchImpl } = {}) {
 
 	if (options.values.only !== undefined) {
 		// Scripted form: the ids to remove are the consent. Validate them.
-		if (!pid) return notify(ctx, "--only 需要先指定供应商：/model-setup models <pid> --only a,b", "error");
+		if (!pid) return notify(ctx, "--only 需要先指定供应商：/model-config models <pid> --only a,b", "error");
 		const existing = new Set((providers[pid].models ?? []).map((m) => m?.id));
 		remove = onlyIds(options).filter((id) => existing.has(id));
 		const missing = onlyIds(options).filter((id) => !existing.has(id));

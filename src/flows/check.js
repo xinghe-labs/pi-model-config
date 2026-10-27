@@ -1,4 +1,4 @@
-// `/model-setup check` — reconcile models.json's static model lists against the
+// `/model-config check` — reconcile models.json's static model lists against the
 // endpoint and models.dev, and optionally write the corrections back.
 //
 // The same function runs silently at session start. That path may only report
@@ -185,7 +185,7 @@ export async function checkFlow(ctx, { auto = false, argv, fetchImpl = fetch } =
 		} else {
 			notify(
 				ctx,
-				"什么都没写入：修复需要确认。要落地请运行 /model-setup check --fix 或 sync --all，或在交互式会话里操作。",
+				"什么都没写入：修复需要确认。要落地请运行 /model-config check --fix 或 sync --all，或在交互式会话里操作。",
 			);
 		}
 		return;

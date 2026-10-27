@@ -1,4 +1,4 @@
-// `/model-setup remove` — delete a provider from models.json.
+// `/model-config remove` — delete a provider from models.json.
 //
 // Two things make this more than an object delete:
 //   - a runtime provider's extension reads apiKey / baseUrl from this entry, so

@@ -1,4 +1,4 @@
-// `/model-setup list` — read-only summary of every configured provider.
+// `/model-config list` — read-only summary of every configured provider.
 import { maskKey } from "../infer.js";
 import { readModelsConfig } from "../json-file.js";
 import { errorMessage, notify } from "../output.js";

@@ -15,15 +15,15 @@ Start a new session afterwards (or `/reload`): a package installed mid-session i
 not loaded until Pi re-reads its package list.
 
 ```text
-/model-setup                          menu
-/model-setup add                      add or replace a provider (five questions)
-/model-setup add <url> <key>          add from a URL and key, no questions
-/model-setup edit                     change one provider's URL / key / api / id
-/model-setup sync                     add new / remove gone / repair drifting models
-/model-setup check [--fix]            reconcile model parameters (--fix applies repairs without asking)
-/model-setup list                     show configured providers
-/model-setup remove                   delete a provider
-/model-setup models <pid>              remove models you do not want
+/model-config                          menu
+/model-config add                      add or replace a provider (five questions)
+/model-config add <url> <key>          add from a URL and key, no questions
+/model-config edit                     change one provider's URL / key / api / id
+/model-config sync                     add new / remove gone / repair drifting models
+/model-config check [--fix]            reconcile model parameters (--fix applies repairs without asking)
+/model-config list                     show configured providers
+/model-config remove                   delete a provider
+/model-config models <pid>              remove models you do not want
 ```
 
 `/model-config` is still registered as an alias.
@@ -35,13 +35,13 @@ inferred; every model gets zero cost (see "models.dev gotchas" below).
 
 ```bash
 # what would be added, and with which numbers — writes nothing
-/model-setup add https://gw.example.com/v1 sk-... 
+/model-config add https://gw.example.com/v1 sk-... 
 
 # actually add three models from that endpoint
-/model-setup add https://gw.example.com/v1 sk-... --only gpt-4o,deepseek-v4-pro
+/model-config add https://gw.example.com/v1 sk-... --only gpt-4o,deepseek-v4-pro
 
 # the endpoint changed: add what is new, drop what it stopped serving
-/model-setup sync --all
+/model-config sync --all
 ```
 
 `add` and `sync` print a plan and **write nothing** until `--all` or `--only` is
@@ -90,7 +90,7 @@ Every one of those fields fails *silently* when it is wrong:
 - **`thinkingLevelMap` missing or wrong** — levels the endpoint rejects stay in the
   picker; levels it supports never appear.
 
-Nothing validates any of it. `/model-setup add` asks for the URL, the API type,
+Nothing validates any of it. `/model-config add` asks for the URL, the API type,
 the key, the models and a provider id, and derives the rest.
 
 ## Where the numbers come from
@@ -124,7 +124,7 @@ never heard of the model, a hand-tuned entry is left alone.
   payload, so losing the network downgrades to stale data rather than to nothing.
 - The cache lives at `~/.pi/agent/model-config-modelsdev-cache.json`.
 
-## `/model-setup edit`
+## `/model-config edit`
 
 Change one provider's connection fields without touching anything else. Where
 `add` is a whole-table replace (re-probes, rewrites the model list), `edit`
@@ -132,14 +132,14 @@ updates only the fields you name and keeps the model list as-is.
 
 ```bash
 # interactive: pick a provider, then answer per field (Enter keeps a field)
-/model-setup edit
+/model-config edit
 
 # scripted: inspect the plan first, add --all when it looks right
-/model-setup edit gw --url https://new-gw.example.com/v1 --key sk-new
-/model-setup edit gw --url https://new-gw.example.com/v1 --all
+/model-config edit gw --url https://new-gw.example.com/v1 --key sk-new
+/model-config edit gw --url https://new-gw.example.com/v1 --all
 
 # rename (handles the old id's enabledModels entries)
-/model-setup edit gw --id new-name --all
+/model-config edit gw --id new-name --all
 ```
 
 Rules:
@@ -154,7 +154,7 @@ Rules:
 - baseUrl / apiKey changes need no restart: another extension (sub-models and
   the like) re-reads models.json on every refresh.
 
-## `/model-setup sync`
+## `/model-config sync`
 
 Makes the `models` list match what the endpoint serves right now:
 
@@ -181,7 +181,7 @@ Two rules make it safe to run against a flaky gateway:
 repairs. `--only <ids>` limits which *new* models are added; it never limits
 removals, so a partial sync cannot leave a stale list behind.
 
-## `/model-setup models`
+## `/model-config models`
 
 Hand-manages one provider's model list: pick models to remove, confirm, done.
 Deleted models are recorded in `hiddenModels` (in `model-config.json`), so
@@ -190,10 +190,10 @@ not something an audit undoes.
 
 ```bash
 # interactive: pick a provider, then pick models until done
-/model-setup models
+/model-config models
 
 # scripted: remove exactly these, no dialogs
-/model-setup models my-gateway --only old-model,another-model
+/model-config models my-gateway --only old-model,another-model
 ```
 
 To restore a hidden model, run `sync --only <id>` (which also removes it from
@@ -201,7 +201,7 @@ the ignore list), or delete its id from `hiddenModels` in `model-config.json`
 and run `sync --all`. The menu path of `sync` also asks before restoring hidden
 models the endpoint still serves.
 
-## `/model-setup check`
+## `/model-config check`
 
 Reconciles the static `models` lists in `models.json` against the endpoint and
 models.dev and offers to write the corrections back.
@@ -224,7 +224,7 @@ It is **best-effort and non-blocking**: startup is never delayed waiting on a
 network probe, and a session that ends immediately (`pi -p "..."`, for instance)
 can exit before the audit finishes. An interrupted audit leaves nothing
 half-written — every write is atomic and all-or-nothing — it just does nothing
-until the next session. `/model-setup check` is the deterministic path.
+until the next session. `/model-config check` is the deterministic path.
 
 ## Non-interactive use
 
