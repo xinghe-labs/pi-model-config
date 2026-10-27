@@ -1,5 +1,11 @@
 # pi-model-config
 
+[![npm version](https://img.shields.io/npm/v/pi-model-config?color=cb3837&label=npm)](https://www.npmjs.com/package/pi-model-config)
+[![npm downloads](https://img.shields.io/npm/dm/pi-model-config?color=cb3837)](https://www.npmjs.com/package/pi-model-config)
+[![license](https://img.shields.io/github/license/xinghe-labs/pi-model-config?color=blue)](./LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/xinghe-labs/pi-model-config?include_prereleases=false&color=blue)](https://github.com/xinghe-labs/pi-model-config/releases)
+[![node](https://img.shields.io/node/v/pi-model-config?color=339933)](package.json)
+
 **一个 URL 加一个 Key。模型的参数是推断出来的，不是手填的。**
 
 一个 Pi 扩展：把第三方 / 自建 / 中转模型端点加进 `models.json`，并让这条配置持续跟端点保持一致
@@ -25,7 +31,23 @@ pi install npm:pi-model-config
 /model-config models <pid>              删除不要的模型
 ```
 
-`/model-config` 仍注册为别名。
+`/model-config` 是唯一的命令名（旧的 `/model-setup` 写法已在 0.4.0 移除）。
+
+## 长什么样
+
+```text
+$ /model-config add https://my-gateway.example.com/v1 sk-... --all
+
+已配置 my-gateway-example-com：3 个模型，api=openai-completions，key=sk-…sed
+- deepseek-v4.1-flash  ctx=1048576 (models.dev)  max=393216 (models.dev)  reasoning (models.dev) [low/high/max]  +image (models.dev)
+- glm-5.3-flash        ctx=131072 (endpoint)     max=8192   (endpoint)     reasoning (endpoint)     [low/medium/high/xhigh/max]
+- whisper-1            ctx=128000 (guess)        max=16384  (guess)
+参数推断来源：端点元数据 > models.dev > 模型名。随时可以手动编辑 models.json，或用 /model-config check 重新对账。原文件已备份。
+```
+
+每个字段都标注了来源（`endpoint` / `models.dev` / `guess`），check 和 sync 的
+计划输出也是同样的形式。不加 `--all` / `--only` 或不在交互里确认就一个字节
+都不写，每次写入前都有备份。
 
 两个新命令的重点就是这行免交互形式：把 URL 和 Key 给它，`contextWindow`、`maxTokens`、
 推理 / 视觉能力、思考强度全部从端点自己的元数据推断，不用手填；`cost` 不做推断，

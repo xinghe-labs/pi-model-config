@@ -1,5 +1,11 @@
 # pi-model-config
 
+[![npm version](https://img.shields.io/npm/v/pi-model-config?color=cb3837&label=npm)](https://www.npmjs.com/package/pi-model-config)
+[![npm downloads](https://img.shields.io/npm/dm/pi-model-config?color=cb3837)](https://www.npmjs.com/package/pi-model-config)
+[![license](https://img.shields.io/github/license/xinghe-labs/pi-model-config?color=blue)](./LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/xinghe-labs/pi-model-config?include_prereleases=false&color=blue)](https://github.com/xinghe-labs/pi-model-config/releases)
+[![node](https://img.shields.io/node/v/pi-model-config?color=339933)](package.json)
+
 **A URL and a key. The model's numbers are derived, not typed.**
 
 A Pi extension for adding a third-party, self-hosted or proxied model endpoint to
@@ -27,7 +33,24 @@ not loaded until Pi re-reads its package list.
 /model-config models <pid>              remove models you do not want
 ```
 
-`/model-config` is still registered as an alias.
+`/model-config` is the only command name (the old `/model-setup` spelling was removed in 0.4.0).
+
+## What it looks like
+
+```text
+$ /model-config add https://my-gateway.example.com/v1 sk-... --all
+
+已配置 my-gateway-example-com：3 个模型，api=openai-completions，key=sk-…sed
+- deepseek-v4.1-flash  ctx=1048576 (models.dev)  max=393216 (models.dev)  reasoning (models.dev) [low/high/max]  +image (models.dev)
+- glm-5.3-flash        ctx=131072 (endpoint)     max=8192   (endpoint)     reasoning (endpoint)     [low/medium/high/xhigh/max]
+- whisper-1            ctx=128000 (guess)        max=16384  (guess)
+参数推断来源：端点元数据 > models.dev > 模型名。随时可以手动编辑 models.json，或用 /model-config check 重新对账。原文件已备份。
+```
+
+Every field in that output names where it came from (`endpoint` / `models.dev` /
+`guess`), and check and sync plans read the same way. Nothing is written until
+you add `--all` / `--only` or answer the interactive prompt, and every write is
+backed up first.
 
 The one-liner form is the point of the two newest commands: point it at a gateway
 and it fills in `contextWindow`, `maxTokens`, reasoning, image input and thinking
