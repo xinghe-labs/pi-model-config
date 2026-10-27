@@ -19,7 +19,8 @@ pi install npm:pi-model-config
 /model-config edit                     修改一个供应商的 URL / Key / api / id
 /model-config sync                     补齐新模型 / 删掉失效模型 / 修参数
 /model-config check [--fix]            只对账参数（--fix 不询问直接修复）
-/model-config list                     列出已配置的供应商
+/model-config list [--ping]            列出已配置的供应商（--ping 附带端点状态与延迟）
+/model-config default [pid/模型]       查看/设置默认供应商、模型与思考等级
 /model-config remove                   删除一个供应商
 /model-config models <pid>              删除不要的模型
 ```
@@ -193,6 +194,29 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 （比如 `pi -p "..."`）可能在审计跑完前就退出了。被中断的审计不会留下半截状态 ——
 每次写入都是原子的、要么全成要么全不成 —— 它只是什么都不做，等下一个会话再说。
 需要确定性请用 `/model-config check`。
+
+## `/model-config list --ping` 与 `default`
+
+`list` 默认纯读文件、不联网。`--ping` 给每个端点发一次探测，标出可访问性与延迟——
+回答「hub 是不是又挂了」这类问题不用跑完整的 `check`：
+
+```bash
+/model-config list --ping
+# - me
+#     https://…  |  api=openai-completions  |  key=sk-8a8…117e  |  5 个模型
+#     ✓ 可访问（214ms，HTTP 200）
+```
+
+`default` 把手编 settings.json 三个字段变成一条命令：
+
+```bash
+/model-config default                      # 看当前默认
+/model-config default me/glm-5.3 high --all # 脚本化设置（默认模型 + 思考等级）
+```
+
+规则：脚本化形式不带 `--all` 只打印计划；选择的模型会先按 `enabledModels`
+和 models.json 校验，选 pi 解析不到的模型会被拒绝而不是把坏状态写进 settings；
+修改写入前备份 settings.json，新会话生效。
 
 ## 非交互模式
 

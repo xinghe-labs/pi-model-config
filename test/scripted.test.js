@@ -11,6 +11,8 @@ import path from "node:path";
 import test from "node:test";
 import { onlyIds, parseOptions, wantsAll, wantsWrite } from "../src/args.js";
 import { checkFlow } from "../src/flows/check.js";
+import { defaultFlow, planDefault } from "../src/flows/default.js";
+import { listFlow, renderProviderList } from "../src/flows/list.js";
 import { modelsFlow } from "../src/flows/models.js";
 import { editFlow } from "../src/flows/edit.js";
 import { removeFlow } from "../src/flows/remove.js";
@@ -980,6 +982,148 @@ test("scripted edit refuses a plaintext endpoint and interactive edit asks", asy
 	await editFlow(interactive, { fetchImpl: editFetch() });
 	assert.match(text(interactive), /\[confirm\] 明文传输警告/);
 	assert.equal(written(dir).providers.gw.baseUrl, "http://plain.example.com/v1", "the user accepted the risk");
+});
+
+// ---- list --ping -----------------------------------------------------------
+
+test("list stays offline by default and pings with --ping", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", cost: ZERO }]) });
+	let network = 0;
+	const fetchImpl = async (url) => {
+		if (String(url).includes("models.dev")) return { ok: true, json: async () => ({}) };
+		network += 1;
+		return { ok: true, status: 200, json: async () => ({ data: [{ id: "m" }] }) };
+	};
+
+	const plain = printCtx(t);
+	await listFlow(plain, { fetchImpl });
+	assert.equal(network, 0, "plain list must not touch the network");
+	assert.match(text(plain), /models\.json 里的供应商（共 1 个）/);
+	assert.ok(!/可访问/.test(text(plain)));
+
+	const pinged = printCtx(t);
+	await listFlow(pinged, { argv: ["--ping"], fetchImpl });
+	assert.equal(network, 1, "--ping sends exactly one request per provider");
+	assert.match(text(pinged), /✓ 可访问（\d+ms，HTTP 200）/);
+});
+
+test("list --ping reports a dead endpoint without failing", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, {
+		good: provider([{ id: "m", cost: ZERO }]),
+		dead: provider([{ id: "m", cost: ZERO }], { baseUrl: "https://dead.example.com/v1" }),
+	});
+	const fetchImpl = async (url) => {
+		if (String(url).includes("models.dev")) return { ok: true, json: async () => ({}) };
+		if (String(url).includes("dead")) throw new Error("ECONNREFUSED");
+		return { ok: true, status: 200, json: async () => ({ data: [{ id: "m" }] }) };
+	};
+	const ctx = printCtx(t);
+	await listFlow(ctx, { argv: ["--ping"], fetchImpl });
+	assert.match(text(ctx), /good/);
+	assert.match(text(ctx), /dead/);
+	assert.match(text(ctx), /✗ 不可访问（ECONNREFUSED）/);
+});
+
+// ---- default ----------------------------------------------------------------
+
+test("default prints the current values and refuses refs pi cannot resolve", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, {
+		gw: provider([
+			{ id: "m1", cost: ZERO },
+			{ id: "m2", cost: ZERO },
+		]),
+	});
+	fs.writeFileSync(
+		path.join(dir, "settings.json"),
+		JSON.stringify({ enabledModels: ["gw/*"], defaultProvider: "gw", defaultModel: "m1", defaultThinkingLevel: "high" }),
+	);
+
+	const show = printCtx(t);
+	await defaultFlow(show, { argv: [] });
+	assert.match(text(show), /gw\/m1，思考等级 high/);
+
+	const unknownModel = printCtx(t);
+	await defaultFlow(unknownModel, { argv: ["gw/m3", "--all"] });
+	assert.match(text(unknownModel), /gw 没有这个模型：m3/);
+
+	const notEnabled = printCtx(t);
+	fs.writeFileSync(
+		path.join(dir, "settings.json"),
+		JSON.stringify({ enabledModels: ["other/*"], defaultProvider: "gw", defaultModel: "m1" }),
+	);
+	await defaultFlow(notEnabled, { argv: ["gw/m1", "--all"] });
+	assert.match(text(notEnabled), /enabledModels 不含 gw\/m1/);
+});
+
+test("default --all writes the three settings fields with a backup", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m1", cost: ZERO }, { id: "m2", cost: ZERO }]) });
+	fs.writeFileSync(
+		path.join(dir, "settings.json"),
+		JSON.stringify({ defaultProvider: "gw", defaultModel: "m1", defaultThinkingLevel: "high" }),
+	);
+
+	const ctx = printCtx(t);
+	await defaultFlow(ctx, { argv: ["gw/m2", "max", "--all"] });
+
+	const s = JSON.parse(fs.readFileSync(path.join(dir, "settings.json"), "utf8"));
+	assert.equal(s.defaultProvider, "gw");
+	assert.equal(s.defaultModel, "m2");
+	assert.equal(s.defaultThinkingLevel, "max");
+	assert.match(text(ctx), /defaultModel: m1 -> m2/);
+	assert.match(text(ctx), /defaultThinkingLevel: high -> max/);
+	assert.match(text(ctx), /已写入 settings\.json（保留备份）/);
+	assert.ok(fs.readdirSync(dir).some((f) => f.startsWith("settings.json.bak-")));
+	assert.equal(JSON.parse(fs.readFileSync(path.join(dir, "models.json"), "utf8")).providers.gw.models.length, 2, "models.json is untouched");
+});
+
+test("default without --all prints the plan only; unknown level is refused", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", cost: ZERO }]) });
+	fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ defaultProvider: "gw", defaultModel: "m" }));
+	const before = fs.readFileSync(path.join(dir, "settings.json"), "utf8");
+
+	const planOnly = printCtx(t);
+	await defaultFlow(planOnly, { argv: ["gw/m", "low"] });
+	assert.match(text(planOnly), /defaultThinkingLevel: （未设置） -> low/);
+	assert.match(text(planOnly), /什么都没写入/);
+	assert.equal(fs.readFileSync(path.join(dir, "settings.json"), "utf8"), before);
+
+	const badLevel = printCtx(t);
+	// The flow catches the validation error and reports it; it must not throw
+	// through (a bad flag value is a user message, not a crash).
+	await assert.doesNotReject(() => defaultFlow(badLevel, { argv: ["gw/m", "ultra", "--all"] }));
+	assert.match(text(badLevel), /未知的思考等级：ultra/);
+	assert.equal(fs.readFileSync(path.join(dir, "settings.json"), "utf8"), before);
+});
+
+test('planDefault treats a missing level as "keep it" and errors only on a true no-op', () => {
+	const settings = { defaultProvider: "gw", defaultModel: "m", defaultThinkingLevel: "high" };
+	assert.throws(() => planDefault({ ref: "gw/m", level: "high", settings }), /没有要修改的字段/);
+	// No level argument means "keep the current thinking level": reporting the
+	// already-current default is a message, not an error throw.
+	const plan = planDefault({ ref: "gw/m", settings });
+	assert.deepEqual(plan.changes, []);
+});
+
+// ---- sync plan truncation ---------------------------------------------------
+
+test("the sync plan truncates long addition lists", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "kept", cost: ZERO }]) });
+	const many = Array.from({ length: 30 }, (_, i) => `new-${String(i).padStart(2, "0")}`);
+	const ctx = printCtx(t);
+	await syncFlow(ctx, { argv: [], fetchImpl: fakeFetch(["kept", ...many]) });
+
+	const out = text(ctx);
+	assert.match(out, /30 个新模型/);
+	assert.match(out, /… 及其余 \d+ 个/);
+	// The full model names must not all be present: exactly 20 are shown.
+	const shown = (out.match(/\+ new-/g) ?? []).length;
+	assert.equal(shown, 20, "the plan shows at most 20 additions");
 });
 
 // ---- concurrent edits between plan and apply -----------------------------

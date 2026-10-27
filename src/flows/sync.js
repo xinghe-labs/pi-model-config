@@ -30,6 +30,10 @@ import { planProvider } from "./check.js";
 
 const RUNTIME_SKIP = "运行时供应商，模型列表由另一个扩展管理";
 
+// A gateway that just got a new key can list hundreds of additions; a plan with
+// two hundred `+` lines is unreadable and just pushes the summary off screen.
+const MAX_PLAN_ADD_LINES = 20;
+
 function emptyRow(plan, extra) {
 	return { ...plan, unreachable: false, runtime: false, added: [], removed: [], changed: [], candidates: [], ...extra };
 }
@@ -171,7 +175,11 @@ export function renderSyncPlan(plan, { prune = true } = {}) {
 		if (row.fillFromEmpty) lines.push("    该供应商还没有模型列表，将从端点补全");
 		if (row.added.length) {
 			lines.push(`    ${row.added.length} 个新模型`);
-			lines.push(...row.added.map(describeAdded));
+			const shown = row.added.slice(0, MAX_PLAN_ADD_LINES);
+			lines.push(...shown.map(describeAdded));
+			if (row.added.length > shown.length) {
+				lines.push(`      … 及其余 ${row.added.length - shown.length} 个（--only <ids> 可以只挑这些中的若干）`);
+			}
 		}
 		if (removed.length) {
 			lines.push(`    ${removed.length} 个模型端点已不再提供（将删除）`);

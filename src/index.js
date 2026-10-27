@@ -18,6 +18,7 @@ import { checkFlow } from "./flows/check.js";
 import { addFlow } from "./flows/add.js";
 import { editFlow } from "./flows/edit.js";
 import { listFlow } from "./flows/list.js";
+import { defaultFlow } from "./flows/default.js";
 import { removeFlow } from "./flows/remove.js";
 import { modelsFlow } from "./flows/models.js";
 import { syncFlow } from "./flows/sync.js";
@@ -38,7 +39,7 @@ const USAGE = [
 	"全部选项见 `/model-config add --help`。",
 ].join("\n");
 
-const SUBCOMMANDS = ["add", "check", "edit", "list", "models", "remove", "sync"];
+const SUBCOMMANDS = ["add", "check", "default", "edit", "list", "models", "remove", "sync"];
 const MENU = [
 	"添加端点",
 	"修改端点（URL / Key / api / id）",
@@ -75,12 +76,13 @@ export default function modelConfigExtension(pi) {
 	const handler = async (args, ctx) => {
 		const { sub, rest } = parseArgs(args);
 		try {
-			if (sub === "list") return await listFlow(ctx);
+			if (sub === "list") return await listFlow(ctx, { argv: rest });
 			if (sub === "check") return await checkFlow(ctx, { argv: rest });
 			if (sub === "remove") return await removeFlow(ctx);
 			if (sub === "models") return await modelsFlow(ctx, { argv: rest });
 			if (sub === "sync") return await syncFlow(ctx, { argv: rest });
 			if (sub === "edit") return await editFlow(ctx, { argv: rest.length ? rest : undefined });
+			if (sub === "default") return await defaultFlow(ctx, { argv: rest });
 			if (sub === "add") return await addFlow(ctx, { argv: rest.length ? rest : undefined });
 			if (!canPrompt(ctx)) {
 				// Non-interactive: there is no menu to show, so print the usage rather

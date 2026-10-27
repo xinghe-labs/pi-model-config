@@ -217,7 +217,8 @@ export async function applyEdit(ctx, plan) {
 		[
 			`已修改 ${renamedTo ?? plan.pid}${renamedTo ? `（由 ${plan.pid} 重命名）` : ""}：`,
 			...changed.map((c) => `  ${c}`),
-			"模型列表未动。baseUrl/apiKey 的修改无需重启：另一个扩展（如 sub-models）每次刷新都会重读 models.json。",
+			"模型列表未动。baseUrl/apiKey 的修改无需重启：另一个扩展（如 sub-models）每次刷新都会重读 models.json。" +
+				(renamedTo ? "" : "改了 baseUrl 后要按新端点重新对账模型列表，请跑 /model-config sync。"),
 		].join("\n"),
 	);
 

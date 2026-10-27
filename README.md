@@ -21,7 +21,8 @@ not loaded until Pi re-reads its package list.
 /model-config edit                     change one provider's URL / key / api / id
 /model-config sync                     add new / remove gone / repair drifting models
 /model-config check [--fix]            reconcile model parameters (--fix applies repairs without asking)
-/model-config list                     show configured providers
+/model-config list [--ping]            show configured providers (--ping adds live endpoint status)
+/model-config default [pid/model]      show or set the default provider, model and thinking level
 /model-config remove                   delete a provider
 /model-config models <pid>              remove models you do not want
 ```
@@ -225,6 +226,31 @@ network probe, and a session that ends immediately (`pi -p "..."`, for instance)
 can exit before the audit finishes. An interrupted audit leaves nothing
 half-written — every write is atomic and all-or-nothing — it just does nothing
 until the next session. `/model-config check` is the deterministic path.
+
+## `/model-config list --ping` and `default`
+
+Plain `list` reads files only and never touches the network. `--ping` sends one
+probe per endpoint and annotates each with reachability and latency — answering
+"is hub up again?" without the much heavier `check`:
+
+```bash
+/model-config list --ping
+# - me
+#     https://…  |  api=openai-completions  |  key=sk-8a8…117e  |  5 models
+#     ✓ reachable (214ms, HTTP 200)
+```
+
+`default` turns hand-editing three settings.json fields into one command:
+
+```bash
+/model-config default                       # show current defaults
+/model-config default me/glm-5.3 high --all # scripted set (model + thinking level)
+```
+
+Rules: the scripted form only prints a plan without `--all`; the chosen model is
+validated against `enabledModels` and models.json, so picking something pi
+cannot resolve is refused instead of written into settings; the write is backed
+up first and takes effect in a new session.
 
 ## Non-interactive use
 
