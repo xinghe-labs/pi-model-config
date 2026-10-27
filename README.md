@@ -377,6 +377,10 @@ fake `fetch`, so nothing touches the network or your real `models.json`.
   guard if you need budgeting.
 - Deleted or vanished models are never removed automatically.
 
+## Acknowledgments
+
+Built for, and first shared with, the [LINUX DO](https://linux.do) community.
+
 ## License
 
 MIT
