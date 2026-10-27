@@ -100,20 +100,16 @@ test("parseArgs only treats a known word as a subcommand", () => {
 	assert.deepEqual(parseArgs("LIST").sub, "list");
 });
 
-test("the extension registers both command names and one startup hook", () => {
+test("the extension registers model-config and one startup hook", () => {
 	const commands = [];
 	const events = [];
 	modelConfigExtension({
 		registerCommand: (name, def) => commands.push({ name, def }),
 		on: (event, handler) => events.push({ event, handler }),
 	});
-	assert.deepEqual(commands.map((c) => c.name), ["model-config", "model-setup"]);
-	for (const { def } of commands) {
-		assert.equal(typeof def.handler, "function");
-		assert.ok(def.description.length > 10);
-	}
-	// Both names must run the same handler, or the alias silently diverges.
-	assert.equal(commands[0].def.handler, commands[1].def.handler);
+	assert.deepEqual(commands.map((c) => c.name), ["model-config"]);
+	assert.equal(typeof commands[0].def.handler, "function");
+	assert.ok(commands[0].def.description.length > 10);
 	assert.deepEqual(events.map((e) => e.event), ["session_start"]);
 });
 

@@ -102,15 +102,11 @@ export default function modelConfigExtension(pi) {
 		}
 	};
 
+	// The newer, shorter name this command is documented under. Only /model-config
+	// is registered: one command, one name, no alias to document or support.
 	pi.registerCommand("model-config", {
 		description:
 			"Add a model endpoint from a URL and key and infer model capabilities (endpoint metadata > models.dev > name), then sync or check: add / edit / sync / check / list / remove",
-		handler,
-	});
-	// The newer, shorter name this command is documented under. Kept registered so
-	// existing muscle memory keeps working, but /model-config is the primary one.
-	pi.registerCommand("model-setup", {
-		description: "Alias for /model-config",
 		handler,
 	});
 }
