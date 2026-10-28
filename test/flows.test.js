@@ -97,6 +97,37 @@ test("planProvider reports nothing when the entry already matches", async () => 
 	assert.match(renderPlan(plan), /✓ 1 个模型参数一致/);
 });
 
+test("planProvider fills a zero cost even when every audited field agrees", async () => {
+	// The forum report: parameters fully in step, --fix did nothing, cost stayed
+	// zero. Cost is not an audited field, so the fill rides on its own condition,
+	// not on a diff.
+	const provider = {
+		baseUrl: "https://api.example.com/v1",
+		api: "openai-completions",
+		models: [
+			{
+				id: "glm-5.3",
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: 200000,
+				maxTokens: 131072,
+				reasoning: true,
+				input: ["text"],
+				compat: { supportsReasoningEffort: true },
+				thinkingLevelMap: { minimal: null, low: null, medium: null, high: "high", xhigh: null, max: null },
+			},
+		],
+	};
+	const priced = { ...official, "glm-5.3": { ...official["glm-5.3"], cost: { input: 0.15, output: 0.5, cacheRead: 0.03, cacheWrite: 0 } } };
+	const plan = await planProvider({ pid: "p", provider, official: priced, fetchImpl: endpoint([]) });
+	assert.deepEqual(plan.changes, [{ id: "glm-5.3", diffs: ["+cost (models.dev list price)"] }]);
+	assert.deepEqual(plan.newModels[0].cost, { input: 0.15, output: 0.5, cacheRead: 0.03, cacheWrite: 0 });
+
+	// A hand-edited price is not "fillable": no change is proposed for it.
+	const custom = { ...provider, models: [{ ...provider.models[0], cost: { input: 7.5, output: 30, cacheRead: 0, cacheWrite: 0 } }] };
+	const untouched = await planProvider({ pid: "p", provider: custom, official: priced, fetchImpl: endpoint([]) });
+	assert.deepEqual(untouched.changes, []);
+});
+
 test("planProvider proposes a repair from models.dev when the probe fails", async () => {
 	const provider = {
 		baseUrl: "https://api.example.com/v1",

@@ -41,8 +41,17 @@ export async function planProvider({ pid, provider, official, fetchImpl }) {
 		if (!existing || typeof existing !== "object" || typeof existing.id !== "string") return existing;
 		const resolved = resolveModelMeta(existing.id, provider.api, endpointById.get(existing.id), officialData);
 		const diffs = diffModel(existing, resolved);
-		if (!diffs.length) return existing;
-		changes.push({ id: existing.id, diffs });
+		// Cost is not an audited field (a hand-edited price is never reported as a
+		// deviation), so an all-zero cost with a list price available never shows
+		// up in `diffs` — the forum report: parameters fully in step, --fix
+		// "doing nothing" while cost stayed zero. The fill must therefore be
+		// applied even when the audited fields already agree.
+		const existingCost = existing.cost && typeof existing.cost === "object" ? existing.cost : undefined;
+		const costFillable =
+			resolved.sources.cost === "cost-official" &&
+			!(Number(existingCost?.input) > 0 || Number(existingCost?.output) > 0);
+		if (!diffs.length && !costFillable) return existing;
+		changes.push({ id: existing.id, diffs: costFillable ? [...diffs, "+cost (models.dev list price)"] : diffs });
 		return repairedDef(existing, resolved);
 	});
 
