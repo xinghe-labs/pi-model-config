@@ -29,7 +29,7 @@ export async function planProvider({ pid, provider, official, fetchImpl }) {
 	let endpointList = [];
 	let endpointErr;
 	try {
-		endpointList = await fetchModelMeta(provider.baseUrl, probeKey(provider), provider.api, { fetchImpl });
+		endpointList = await fetchModelMeta(provider.baseUrl, probeKey(provider, pid), provider.api, { fetchImpl });
 	} catch (err) {
 		endpointErr = err;
 	}

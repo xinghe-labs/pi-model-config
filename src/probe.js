@@ -5,6 +5,7 @@
 //   - anthropic-messages:  x-api-key + anthropic-version
 //   - google-generative-ai: ?key=<key> (a Bearer header is a guaranteed 401)
 import { PROBE_TIMEOUT_MS, PROBE_UA } from "./const.js";
+import { resolveProbeKey } from "./auth-store.js";
 
 const posInt = (v) => (Number.isInteger(v) && v > 0 ? v : undefined);
 
@@ -22,8 +23,10 @@ export function uniqueById(list) {
 }
 
 // models.json uses the literal "none" for "no key"; never send it as a bearer.
-export function probeKey(provider) {
-	return provider?.apiKey && provider.apiKey !== "none" ? provider.apiKey : "";
+// Falls back to pi's auth.json credential (the "stored credential" pi itself
+// prefers) when the provider has no explicit key — see auth-store.js.
+export function probeKey(provider, pid) {
+	return resolveProbeKey(provider, pid);
 }
 
 // Google's Gemini REST API puts the version in the path. Pi's built-in google

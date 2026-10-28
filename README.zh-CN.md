@@ -292,6 +292,12 @@ Key 从对话框读入、写进 `models.json`，而 pi 以明文保存该文件�
 短到「前 6 + 后 4」就等于全泄露的，只报长度。base URL 是 `http://` 且非回环地址时，
 不加确认不往下走 —— 那样 Key 是明文上路的。
 
+探测也认识 pi 的凭据库：当某个 provider 在 `models.json` 里没有 `apiKey` 时，
+`check`、`list --ping` 和 `edit` 会回退到 pi 存在 `~/.pi/agent/auth.json` 里的
+`api_key` 凭据（也就是运行时优先用的那个 stored credential）。OAuth 型凭据
+不参与 —— 它的 bearer 由 pi 的刷新流程签发。本扩展只读 `auth.json`，
+从不写它：那个文件由 pi 持锁管理。
+
 ## Google Gemini
 
 Gemini 的 REST 用 `?key=` 鉴权而不是 bearer，所以探测走查询参数；base URL 没有版本段时

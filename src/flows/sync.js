@@ -100,7 +100,7 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 				let endpointList = [];
 				let endpointErr;
 				try {
-					endpointList = await fetchModelMeta(provider.baseUrl, probeKey(provider), provider.api, { fetchImpl });
+					endpointList = await fetchModelMeta(provider.baseUrl, probeKey(provider, plan.pid), provider.api, { fetchImpl });
 				} catch (err) {
 					endpointErr = err;
 				}

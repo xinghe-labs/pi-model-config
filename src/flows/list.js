@@ -54,8 +54,8 @@ async function pingProviders(providers, { fetchImpl = fetch } = {}) {
 			}
 			const started = Date.now();
 			try {
-				const res = await fetchImpl(probeUrl(p.baseUrl, probeKey(p), p.api), {
-					headers: probeHeaders(probeKey(p), p.api),
+				const res = await fetchImpl(probeUrl(p.baseUrl, probeKey(p, id), p.api), {
+					headers: probeHeaders(probeKey(p, id), p.api),
 					signal: AbortSignal.timeout(PING_TIMEOUT_MS),
 				});
 				const outcome = {

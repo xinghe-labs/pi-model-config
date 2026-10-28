@@ -87,9 +87,12 @@ const FIELDS = [
 	{ key: "api", label: "API 类型" },
 ];
 
-function currentMasked(provider) {
+function currentMasked(provider, pid) {
 	const key = provider.apiKey && provider.apiKey !== "none" ? provider.apiKey : "";
-	return key ? maskKey(key) : "（无 key）";
+	const shown = key ? maskKey(key) : "（无 key）";
+	// pi prefers a stored auth.json credential over this field; saying so keeps
+	// an edit of the models.json key from looking like a no-op that "did nothing".
+	return authStoreKey(pid) && !key ? `${shown}（auth.json credential 生效中）` : shown;
 }
 
 function describeChange(key, from, to) {
@@ -290,7 +293,7 @@ function wantsWrite(options) {
 
 // ---- interactive form -----------------------------------------------------
 
-async function askField(ctx, provider, field) {
+async function askField(ctx, provider, field, pid) {
 	if (field.key === "baseUrl") {
 		const raw = await ctx.ui.input("新的端点地址（回车保持不变）", provider.baseUrl ?? "https://api.example.com/v1");
 		if (raw === undefined) return undefined;
@@ -298,7 +301,7 @@ async function askField(ctx, provider, field) {
 		return trimmed && trimmed !== provider.baseUrl ? trimmed : undefined;
 	}
 	if (field.key === "apiKey") {
-		const raw = await ctx.ui.input(`新的 API Key（当前 ${currentMasked(provider)}，回车保持不变）`, "sk-...");
+		const raw = await ctx.ui.input(`新的 API Key（当前 ${currentMasked(provider, pid)}，回车保持不变）`, "sk-...");
 		if (raw === undefined) return undefined;
 		const key = raw.trim();
 		return key && key !== provider.apiKey ? key : undefined;
@@ -366,7 +369,7 @@ export async function editFlow(ctx, { fetchImpl = fetch, argv } = {}) {
 			continue;
 		}
 		const field = fields.find((f) => f.label === choice);
-		const value = await askField(ctx, provider, field);
+		const value = await askField(ctx, provider, field, pid);
 		if (value === undefined) continue;
 		updates[field.key] = value;
 		if (field.key === "baseUrl") {

@@ -342,6 +342,13 @@ be revealing is shown by length only. `add` refuses to proceed without an explic
 confirmation when the base URL is `http://` and not loopback, because the key
 would travel in the clear.
 
+Probing also understands pi's credential store: when a provider has no
+`apiKey` in `models.json`, `check`, `list --ping` and `edit` fall back to the
+`api_key` credential pi keeps in `~/.pi/agent/auth.json` (the same
+"stored credential" the runtime prefers). OAuth credentials are ignored —
+their bearers are minted by pi's refresh flow. This extension reads
+`auth.json` but never writes it; the file is file-locked and owned by pi.
+
 ## Google Gemini
 
 The Gemini REST API authenticates with `?key=`, not a bearer token, so the probe

@@ -11,3 +11,4 @@ export const modelsJsonPath = () => path.join(agentDir(), "models.json");
 export const settingsPath = () => path.join(agentDir(), "settings.json");
 export const officialCachePath = () => path.join(agentDir(), "model-config-modelsdev-cache.json");
 export const userConfigPath = () => path.join(agentDir(), "model-config.json");
+export const authStorePath = () => path.join(agentDir(), "auth.json");

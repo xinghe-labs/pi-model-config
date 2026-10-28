@@ -14,6 +14,7 @@ import { inferApi, maskKey, suggestProviderId } from "../infer.js";
 import { backupFile, readModelsConfig, writeJson } from "../json-file.js";
 import { loadOfficialData } from "../official.js";
 import { errorMessage, notify } from "../output.js";
+import { authStoreKey } from "../auth-store.js";
 import { modelsJsonPath } from "../paths.js";
 import { fetchModelMeta } from "../probe.js";
 import { SOURCE_LABEL, resolveModelMeta } from "../resolve.js";
@@ -211,12 +212,22 @@ export async function applyAdd(ctx, plan) {
 		return notify(ctx, `写入 models.json 失败：${errorMessage(err)}`, "error");
 	}
 
-	// The refresh is not allowed to abort the flow: enabledModels still has to be
-	// updated, otherwise a scoped /model list never shows the new provider.
+// The refresh is not allowed to abort the flow: enabledModels still has to be
+// updated, otherwise a scoped /model list never shows the new provider.
 	try {
 		await ctx.modelRegistry.refresh({ providers: [plan.pid] });
 	} catch (err) {
 		notify(ctx, `已写入，但注册表刷新失败（重启后会加载）：${errorMessage(err)}`, "warning");
+	}
+
+	// pi prefers an auth.json credential over the models.json field; if one
+	// exists, the key just written is a fallback, not the live credential.
+	if (authStoreKey(plan.pid) && plan.apiKey) {
+		notify(
+			ctx,
+			`注意：auth.json 里已有 ${plan.pid} 的 stored credential，pi 将优先使用它；models.json 里的 key 只是回退。`,
+			"warning",
+		);
 	}
 
 	notify(
