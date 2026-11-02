@@ -150,6 +150,10 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 
 # 重命名（同步处理 enabledModels 里的旧条目）
 /model-config edit gw --id new-name --all
+
+# 开关该端点的自动刷新（见「不探测的端点」）
+/model-config edit gw --no-probe --all
+/model-config edit gw --probe --all
 ```
 
 规则：
@@ -272,10 +276,13 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 
 ## 不探测的端点
 
-黑洞端点会让每次对账干等到超时，也有些端点你根本不想让它刷新模型。声明一次即可：
+黑洞端点会让每次对账干等到超时，也有些端点你根本不想让它刷新模型。两种退出方式，可叠加：
 
-```json
-// ~/.pi/agent/model-config.json
+```jsonc
+// provider 级，写在 models.json —— /model-config edit 开关的就是它：
+{ "providers": { "slow-endpoint": { "noProbe": true, ... } } }
+
+// 全局列表，写在 model-config.json（或 PI_MODEL_CONFIG_NO_PROBE="a,b"）：
 { "noProbe": ["slow-endpoint"] }
 ```
 

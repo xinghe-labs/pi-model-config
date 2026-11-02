@@ -78,7 +78,15 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 	// with it (see planProvider).
 	const official = loadOfficialData({ fetchImpl });
 	const plans = await Promise.all(
-		targets.map((pid) => planProvider({ pid, provider: providers[pid], official, fetchImpl, noProbe: noProbeSet.has(pid.toLowerCase()) })),
+		targets.map((pid) =>
+			planProvider({
+				pid,
+				provider: providers[pid],
+				official,
+				fetchImpl,
+				noProbe: providers[pid]?.noProbe === true || noProbeSet.has(pid.toLowerCase()),
+			}),
+		),
 	);
 	const officialData = (await official) ?? {};
 

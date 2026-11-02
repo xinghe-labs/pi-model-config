@@ -37,6 +37,8 @@ const EDIT_USAGE = [
 	"      --key <key>        新的 API Key",
 	"      --api <type>       openai-completions | openai-responses | anthropic-messages | google-generative-ai",
 	"      --id <new-pid>     重命名供应商（同步处理 enabledModels）",
+	"      --no-probe         关闭该端点的自动刷新（check/sync 不再探测它）",
+	"      --probe            恢复该端点的自动刷新",
 	"      --all              应用修改（不带则只打印计划）",
 	"      --dry-run          即使带了 --all 也只打印计划",
 	"",
@@ -85,6 +87,7 @@ const FIELDS = [
 	{ key: "baseUrl", label: "端点地址" },
 	{ key: "apiKey", label: "API Key" },
 	{ key: "api", label: "API 类型" },
+	{ key: "noProbe", label: "自动刷新模型列表" },
 ];
 
 function currentMasked(provider, pid) {
@@ -96,6 +99,11 @@ function currentMasked(provider, pid) {
 }
 
 function describeChange(key, from, to) {
+	if (key === "noProbe") {
+		// The menu label is the positive feature; the stored field is the opt-out.
+		const label = (v) => (v === true ? "否（noProbe）" : "是");
+		return `自动刷新模型列表: ${label(from)} -> ${label(to)}`;
+	}
 	const shown = (v) => (v === "" || v === "none" ? "（无 key）" : key === "apiKey" ? maskKey(v) : v);
 	return `${key}: ${shown(from)} -> ${shown(to)}`;
 }
@@ -103,7 +111,7 @@ function describeChange(key, from, to) {
 // Compute the update without touching disk. Throws on anything the caller
 // should report (unknown provider, bad URL/API, nothing to change, dead
 // endpoint). `updates.pid` carries the rename.
-export async function planEdit({ pid, baseUrl, apiKey, api, newPid, fetchImpl = fetch }) {
+export async function planEdit({ pid, baseUrl, apiKey, api, newPid, noProbe, fetchImpl = fetch }) {
 	const targetPid = String(pid ?? "").trim();
 	if (!targetPid) throw new Error("没有指定要修改的供应商");
 
@@ -127,6 +135,9 @@ export async function planEdit({ pid, baseUrl, apiKey, api, newPid, fetchImpl = 
 		if (!API_VALUES.includes(api)) throw new Error(`未知的 API 类型：${api}（可选：${API_VALUES.join(", ")}）`);
 		if (api !== provider.api) updates.api = api;
 	}
+	if (noProbe !== undefined) {
+		if (noProbe !== (provider.noProbe === true)) updates.noProbe = noProbe;
+	}
 	if (newPid !== undefined && String(newPid).trim() !== "") {
 		const cleaned = validateProviderId(String(newPid).trim());
 		if (cleaned !== targetPid && config.providers?.[cleaned]) {
@@ -136,7 +147,7 @@ export async function planEdit({ pid, baseUrl, apiKey, api, newPid, fetchImpl = 
 	}
 
 	if (!Object.keys(updates).length) {
-		throw new Error("没有要修改的字段：至少给出 --url / --key / --api / --id 中的一个");
+		throw new Error("没有要修改的字段：至少给出 --url / --key / --api / --id / --no-probe / --probe 中的一个");
 	}
 
 	let verification;
@@ -263,6 +274,7 @@ async function editFromArgs(ctx, { options, positionals, fetchImpl }) {
 			apiKey: options.values.key,
 			api: options.values.api,
 			newPid: options.values.id,
+			noProbe: options.flags.has("no-probe") ? true : options.flags.has("probe") ? false : undefined,
 			fetchImpl,
 		});
 	} catch (err) {
@@ -306,6 +318,18 @@ async function askField(ctx, provider, field, pid) {
 		const key = raw.trim();
 		return key && key !== provider.apiKey ? key : undefined;
 	}
+	if (field.key === "noProbe") {
+		const current = provider.noProbe === true;
+		const ok = await ctx.ui.confirm(
+			"自动刷新模型列表",
+			current
+				? "当前：否（已设置 noProbe，本扩展不会探测/刷新该端点）。要恢复为是吗？"
+				: "当前：是（check/sync 会探测该端点并拉取新模型）。要改为否吗？",
+		);
+		if (ok === undefined) return undefined;
+		const next = ok ? false : true;
+		return next !== current ? next : undefined;
+	}
 	// api: current value first, labelled as such; picking it is a no-op.
 	const guessed = inferApi(provider.baseUrl ?? "");
 	const ordered = [...API_TYPES.filter((t) => t.value === guessed), ...API_TYPES.filter((t) => t.value !== guessed)];
@@ -321,7 +345,7 @@ export async function editFlow(ctx, { fetchImpl = fetch, argv } = {}) {
 		const options = restrictOptions(
 			"edit",
 			parseOptions(argv),
-			new Set(["all", "yes", "apply", "dry-run", "help"]),
+			new Set(["all", "yes", "apply", "dry-run", "help", "no-probe", "probe"]),
 			new Set(["id", "api", "key", "url"]),
 		);
 		if (options.flags.has("help")) {

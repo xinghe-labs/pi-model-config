@@ -226,6 +226,34 @@ test("noProbe: config list, env merge, case-insensitive match", (t) => {
 	assert.equal(isNoProbe("blackhole"), false);
 });
 
+test("planEdit toggles noProbe without touching the endpoint", async (t) => {
+	const dir = withAgentDir(t);
+	fs.writeFileSync(path.join(dir, "models.json"), JSON.stringify({ providers: {
+		p: { baseUrl: "https://p.example.com/v1", apiKey: "none", api: "openai-completions", models: [] },
+	} }));
+	const { planEdit } = await import("../src/flows/edit.js");
+	// The endpoint is unreachable; a noProbe toggle must not need it to answer.
+	const plan = await planEdit({ pid: "p", noProbe: true, fetchImpl: () => new Promise(() => {}) });
+	assert.deepEqual(plan.updates, { noProbe: true });
+	// Toggling back off.
+	fs.writeFileSync(path.join(dir, "models.json"), JSON.stringify({ providers: {
+		p: { baseUrl: "https://p.example.com/v1", apiKey: "none", api: "openai-completions", noProbe: true, models: [] },
+	} }));
+	const off = await planEdit({ pid: "p", noProbe: false, fetchImpl: () => new Promise(() => {}) });
+	assert.deepEqual(off.updates, { noProbe: false });
+});
+
+test("planProvider: provider.noProbe=true beats a missing global entry", async () => {
+	const provider = {
+		baseUrl: "https://blackhole.example.invalid/v1",
+		api: "openai-completions",
+		noProbe: true,
+		models: [{ id: "glm-5.3", contextWindow: 200000, maxTokens: 131072, reasoning: true, input: ["text"], cost: { ...ZERO_COST } }],
+	};
+	const plan = await planProvider({ pid: "p", provider, official, fetchImpl: () => new Promise(() => {}), noProbe: true });
+	assert.equal(plan.noProbe, true);
+});
+
 test("planProvider with noProbe skips the endpoint probe entirely", async () => {
 	const provider = {
 		baseUrl: "https://blackhole.example.invalid/v1",

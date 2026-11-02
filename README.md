@@ -167,6 +167,10 @@ updates only the fields you name and keeps the model list as-is.
 
 # rename (handles the old id's enabledModels entries)
 /model-config edit gw --id new-name --all
+
+# toggle per-endpoint auto-refresh (see "Endpoints not to probe")
+/model-config edit gw --no-probe --all
+/model-config edit gw --probe --all
 ```
 
 Rules:
@@ -318,10 +322,14 @@ disable the command.
 ## Endpoints not to probe
 
 A black-hole endpoint hangs every audit until the timeout, and some endpoints
-are simply not to be refreshed. Declare them once:
+are simply not to be refreshed. There are two ways to opt out, and they
+combine:
 
-```json
-// ~/.pi/agent/model-config.json
+```jsonc
+// per provider, in models.json — what /model-config edit toggles:
+{ "providers": { "slow-endpoint": { "noProbe": true, ... } } }
+
+// global list, in model-config.json (or PI_MODEL_CONFIG_NO_PROBE="a,b"):
 { "noProbe": ["slow-endpoint"] }
 ```
 

@@ -153,7 +153,15 @@ export async function checkFlow(ctx, { auto = false, argv, fetchImpl = fetch } =
 	// and let `planProvider` await it after its own probe has already been issued.
 	const official = loadOfficialData({ fetchImpl });
 	const plans = await Promise.all(
-		targets.map((pid) => planProvider({ pid, provider: providers[pid], official, fetchImpl, noProbe: noProbeSet.has(pid.toLowerCase()) })),
+		targets.map((pid) =>
+			planProvider({
+				pid,
+				provider: providers[pid],
+				official,
+				fetchImpl,
+				noProbe: providers[pid]?.noProbe === true || noProbeSet.has(pid.toLowerCase()),
+			}),
+		),
 	);
 
 	const report = [];
