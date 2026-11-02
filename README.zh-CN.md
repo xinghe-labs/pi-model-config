@@ -270,6 +270,22 @@ add 流程会逐条打印每个字段来自哪个来源，推断结果可核对�
 或 `PI_MODEL_CONFIG_RUNTIME_PROVIDERS="a,b"`。id 大小写不敏感。`model-config.json` 写坏了
 只会降级成「没有配置项」并给出提示 —— 它永远不能把命令弄瘫。
 
+## 不探测的端点
+
+黑洞端点会让每次对账干等到超时，也有些端点你根本不想让它刷新模型。声明一次即可：
+
+```json
+// ~/.pi/agent/model-config.json
+{ "noProbe": ["slow-endpoint"] }
+```
+
+或 `PI_MODEL_CONFIG_NO_PROBE="a,b"`。id 大小写不敏感。效果：
+
+- `check`（含启动对账和 `--fix`）跳过该 provider 的端点探测，只用 models.dev / 名称推断对账，
+  报告里注明 `ℹ noProbe`；
+- `sync` 整体跳过该 provider —— sync 的本职就是从端点拉新模型 —— 表格里注明原因；
+- `list --ping` 依然会 ping 它：那是你显式点名的动作。
+
 ## 它会写什么
 
 - `models.json` —— 先备份成 `models.json.bak-<毫秒时间戳>`，再原子写入（临时文件 + rename），
@@ -310,7 +326,7 @@ Gemini 的 REST 用 `?key=` 鉴权而不是 bearer，所以探测走查询参数
 | --- | --- |
 | `~/.pi/agent/models.json` | 读写。JSONC：允许注释和尾逗号。 |
 | `~/.pi/agent/settings.json` | 只碰 `enabledModels`。严格 JSON，与 Pi 的 settings-manager 一致。 |
-| `~/.pi/agent/model-config.json` | 可选：`runtimeProviders`、`hiddenModels`。 |
+| `~/.pi/agent/model-config.json` | 可选：`runtimeProviders`、`hiddenModels`、`noProbe`。 |
 | `~/.pi/agent/model-config-modelsdev-cache.json` | models.dev 缓存，删了没事。 |
 
 设置 `PI_CODING_AGENT_DIR` 可以把以上全部指到别处。

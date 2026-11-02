@@ -13,25 +13,34 @@ import { errorMessage, notify, canPrompt } from "../output.js";
 import { modelsJsonPath } from "../paths.js";
 import { fetchModelMeta, probeKey } from "../probe.js";
 import { diffModel, repairedDef, resolveModelMeta } from "../resolve.js";
-import { isRuntimeProvider, runtimeProviders } from "../user-config.js";
+import { isRuntimeProvider, noProbeProviders, runtimeProviders } from "../user-config.js";
 
 const NONE = "没有静态模型列表（由刷新或其他扩展生成）";
 
-export async function planProvider({ pid, provider, official, fetchImpl }) {
+export async function planProvider({ pid, provider, official, fetchImpl, noProbe = false }) {
 	if (!provider || typeof provider !== "object") return { pid, skipped: "provider 缺失" };
 	if (!provider.baseUrl) return { pid, skipped: "没有 baseUrl" };
 	if (!Array.isArray(provider.models) || provider.models.length === 0) return { pid, skipped: NONE };
 
-	// Probe before awaiting models.dev. The two are independent, and the endpoint is
-	// the authoritative source, so it must not queue behind a 400 kB catalog
-	// download. `official` may therefore be a pending promise shared by every
-	// provider, which is what lets the probes run concurrently with it.
+	// A noProbe provider is audited without its endpoint: a black-hole host would
+	// otherwise hang every audit until the timeout (the forum's "/model feels
+	// stuck" report), and some endpoints are simply not to be refreshed.
+	// models.dev and the name heuristics still carry the report.
 	let endpointList = [];
 	let endpointErr;
-	try {
-		endpointList = await fetchModelMeta(provider.baseUrl, probeKey(provider, pid), provider.api, { fetchImpl });
-	} catch (err) {
-		endpointErr = err;
+	const skippedProbe = noProbe === true;
+	if (skippedProbe) {
+		endpointErr = undefined;
+	} else {
+		// Probe before awaiting models.dev. The two are independent, and the endpoint is
+		// the authoritative source, so it must not queue behind a 400 kB catalog
+		// download. `official` may therefore be a pending promise shared by every
+		// provider, which is what lets the probes run concurrently with it.
+		try {
+			endpointList = await fetchModelMeta(provider.baseUrl, probeKey(provider, pid), provider.api, { fetchImpl });
+		} catch (err) {
+			endpointErr = err;
+		}
 	}
 	const officialData = (await official) ?? {};
 
@@ -62,12 +71,14 @@ export async function planProvider({ pid, provider, official, fetchImpl }) {
 			? provider.models.filter((m) => m?.id && !endpointById.has(m.id)).map((m) => m.id)
 			: [];
 
-	return { pid, provider, endpointList, endpointErr, changes, newModels, vanished };
+	return { pid, provider, endpointList, endpointErr, changes, newModels, vanished, noProbe: skippedProbe };
 }
 
 export function renderPlan(plan, { runtime = false } = {}) {
 	const lines = [`- ${plan.pid} (${plan.provider.baseUrl})`];
-	if (plan.endpointErr) {
+	if (plan.noProbe) {
+		lines.push(`    ℹ 已配置 noProbe：未探测端点，仅按 models.dev / 名称对账`);
+	} else if (plan.endpointErr) {
 		lines.push(`    ！端点探测失败（${errorMessage(plan.endpointErr)}），仅按 models.dev / 名称对账`);
 	}
 	if (!plan.changes.length && !plan.vanished.length) {
@@ -115,6 +126,7 @@ export async function checkFlow(ctx, { auto = false, argv, fetchImpl = fetch } =
 	}
 
 	const runtime = runtimeProviders();
+	const noProbeSet = noProbeProviders();
 	let targets = Object.keys(providers);
 	// Whether the user can be *asked*. The target picker and the per-provider repair
 	// confirm both need a UI; without one, `check` can only report.
@@ -141,7 +153,7 @@ export async function checkFlow(ctx, { auto = false, argv, fetchImpl = fetch } =
 	// and let `planProvider` await it after its own probe has already been issued.
 	const official = loadOfficialData({ fetchImpl });
 	const plans = await Promise.all(
-		targets.map((pid) => planProvider({ pid, provider: providers[pid], official, fetchImpl })),
+		targets.map((pid) => planProvider({ pid, provider: providers[pid], official, fetchImpl, noProbe: noProbeSet.has(pid.toLowerCase()) })),
 	);
 
 	const report = [];

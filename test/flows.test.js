@@ -3,11 +3,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { ZERO_COST } from "../src/const.js";
 import { checkFlow, planProvider, renderPlan } from "../src/flows/check.js";
 import { renderProviderList } from "../src/flows/list.js";
 import { canPrompt, notify, requireUI } from "../src/output.js";
 import { scopedEntriesFor, removeScopeUpdate } from "../src/scope.js";
-import { isRuntimeProvider, readUserConfig, runtimeProviders } from "../src/user-config.js";
+import { isNoProbe, isRuntimeProvider, noProbeProviders, readUserConfig, runtimeProviders } from "../src/user-config.js";
 
 function withAgentDir(t) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pmc-flows-"));
@@ -209,7 +210,35 @@ test("renderProviderList masks keys and labels runtime providers", () => {
 
 test("readUserConfig defaults to no runtime providers", (t) => {
 	withAgentDir(t);
-	assert.deepEqual(readUserConfig(), { runtimeProviders: [] });
+	assert.deepEqual(readUserConfig(), { runtimeProviders: [], noProbe: [] });
+});
+
+test("noProbe: config list, env merge, case-insensitive match", (t) => {
+	const dir = withAgentDir(t);
+	fs.writeFileSync(path.join(dir, "model-config.json"), JSON.stringify({ noProbe: ["Blackhole"] }));
+	process.env.PI_MODEL_CONFIG_NO_PROBE = "slow, ,gone";
+	t.after(() => { delete process.env.PI_MODEL_CONFIG_NO_PROBE; });
+	assert.deepEqual([...noProbeProviders()].sort(), ["blackhole", "slow", "gone"].sort());
+	assert.equal(isNoProbe("BLACKHOLE"), true);
+	assert.equal(isNoProbe("other"), false);
+	// A missing file degrades to an empty set.
+	fs.rmSync(path.join(dir, "model-config.json"), { force: true });
+	assert.equal(isNoProbe("blackhole"), false);
+});
+
+test("planProvider with noProbe skips the endpoint probe entirely", async () => {
+	const provider = {
+		baseUrl: "https://blackhole.example.invalid/v1",
+		api: "openai-completions",
+		models: [{ id: "glm-5.3", contextWindow: 200000, maxTokens: 131072, reasoning: true, input: ["text"], cost: { ...ZERO_COST } }],
+	};
+	// A fetch that would hang forever: if the probe ran, this promise never
+	// settles and the test times out — which is exactly the black-hole bug.
+	const plan = await planProvider({ pid: "p", provider, official, fetchImpl: () => new Promise(() => {}), noProbe: true });
+	assert.equal(plan.noProbe, true);
+	assert.equal(plan.endpointErr, undefined);
+	// The audit still ran on models.dev / names.
+	assert.match(renderPlan(plan), /noProbe/);
 });
 
 test("readUserConfig reads the list and filters junk", (t) => {

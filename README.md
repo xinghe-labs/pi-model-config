@@ -315,6 +315,25 @@ or `PI_MODEL_CONFIG_RUNTIME_PROVIDERS="a,b"`. Ids match case-insensitively. A
 corrupt `model-config.json` degrades to "no options" and says so — it can never
 disable the command.
 
+## Endpoints not to probe
+
+A black-hole endpoint hangs every audit until the timeout, and some endpoints
+are simply not to be refreshed. Declare them once:
+
+```json
+// ~/.pi/agent/model-config.json
+{ "noProbe": ["slow-endpoint"] }
+```
+
+or `PI_MODEL_CONFIG_NO_PROBE="a,b"`. Ids match case-insensitively. Effects:
+
+- `check` (including the startup audit and `--fix`) skips the endpoint probe
+  for that provider and audits from models.dev / name heuristics only, with an
+  `ℹ noProbe` note in the report;
+- `sync` skips the provider entirely — it exists to pull from the endpoint —
+  and says so in the table;
+- `list --ping` still pings it: that is an explicit action you asked for.
+
 ## What it writes
 
 - `models.json` — backed up as `models.json.bak-<millisecond timestamp>` first,

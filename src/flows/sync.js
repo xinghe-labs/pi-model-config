@@ -24,6 +24,7 @@ import { canPrompt, errorMessage, notify } from "../output.js";
 import { modelsJsonPath } from "../paths.js";
 import { fetchModelMeta, probeKey, uniqueById } from "../probe.js";
 import { SOURCE_LABEL, resolveModelMeta } from "../resolve.js";
+import { noProbeProviders } from "../user-config.js";
 import { applyScopeUpdate } from "../scope.js";
 import { isRuntimeProvider, readUserConfig, removeFromHiddenModels, runtimeProviders } from "../user-config.js";
 import { planProvider } from "./check.js";
@@ -67,6 +68,7 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 	// endpoint, but a deliberate removal is recorded in hiddenModels and wins
 	// over the endpoint. An unparseable model-config.json must stop sync rather
 	// than silently lose that gate: the next --all would resurrect deleted models.
+	const noProbeSet = noProbeProviders();
 	const userConfig = readUserConfig();
 	if (userConfig.error) throw new Error(userConfig.error);
 	const hiddenModels = userConfig.hiddenModels;
@@ -76,12 +78,17 @@ export async function planSync({ pids, only, fetchImpl = fetch } = {}) {
 	// with it (see planProvider).
 	const official = loadOfficialData({ fetchImpl });
 	const plans = await Promise.all(
-		targets.map((pid) => planProvider({ pid, provider: providers[pid], official, fetchImpl })),
+		targets.map((pid) => planProvider({ pid, provider: providers[pid], official, fetchImpl, noProbe: noProbeSet.has(pid.toLowerCase()) })),
 	);
 	const officialData = (await official) ?? {};
 
 	const rows = await Promise.all(
 		plans.map(async (plan) => {
+			// A noProbe provider is exactly "do not refresh models from this
+			// endpoint": sync exists to pull from the endpoint, so there is
+			// nothing for it here. Reporting keeps the row visible instead of
+			// letting the provider look broken.
+			if (plan.noProbe) return emptyRow(plan, { skipped: "已配置 noProbe：不从该端点刷新模型" });
 			if (plan.skipped) {
 				// `check` treats a provider with no static list as runtime-managed and says
 				// nothing. For sync that missing list is exactly what is worth filling —

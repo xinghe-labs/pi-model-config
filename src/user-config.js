@@ -22,16 +22,24 @@ import { errorMessage, notify } from "./output.js";
 
 export function readUserConfig() {
 	const raw = readFileIfExists(userConfigPath());
-	if (raw === undefined) return { runtimeProviders: [] };
+	if (raw === undefined) return { runtimeProviders: [], noProbe: [] };
 	try {
 		const parsed = JSON.parse(raw);
 		const list = Array.isArray(parsed?.runtimeProviders)
 			? parsed.runtimeProviders.filter((p) => typeof p === "string" && p.trim())
 			: [];
-		return { ...parsed, runtimeProviders: list };
+		// Providers whose endpoint is not to be probed: black-hole hosts that hang
+		// every audit until the timeout, or endpoints the user simply does not want
+		// refreshed. The audit still runs for them — it just cannot use the endpoint
+		// as a source, so models.dev / name heuristics carry the report instead.
+		const noProbe = Array.isArray(parsed?.noProbe)
+			? parsed.noProbe.filter((p) => typeof p === "string" && p.trim())
+			: [];
+		return { ...parsed, runtimeProviders: list, noProbe };
 	} catch (err) {
 		return {
 			runtimeProviders: [],
+			noProbe: [],
 			error: `model-config.json could not be parsed (${err instanceof Error ? err.message : String(err)}); ignoring it.`,
 		};
 	}
@@ -54,6 +62,26 @@ export function runtimeProviders() {
 }
 
 export function isRuntimeProvider(id, set = runtimeProviders()) {
+	return set.has(String(id).toLowerCase());
+}
+
+export function envNoProbe() {
+	const raw = process.env.PI_MODEL_CONFIG_NO_PROBE;
+	if (!raw) return [];
+	return raw
+		.split(",")
+		.map((p) => p.trim())
+		.filter(Boolean);
+}
+
+// Case-insensitive, same as runtimeProviders: provider ids pass through several
+// layers, and models.json keys are not guaranteed to keep their case.
+export function noProbeProviders() {
+	const all = [...readUserConfig().noProbe, ...envNoProbe()];
+	return new Set(all.map((p) => p.toLowerCase()));
+}
+
+export function isNoProbe(id, set = noProbeProviders()) {
 	return set.has(String(id).toLowerCase());
 }
 
