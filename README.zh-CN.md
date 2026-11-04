@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/pi-model-config?color=cb3837&label=npm)](https://www.npmjs.com/package/pi-model-config)
 [![npm downloads](https://img.shields.io/npm/dm/pi-model-config?color=cb3837)](https://www.npmjs.com/package/pi-model-config)
 [![license](https://img.shields.io/github/license/xinghe-labs/pi-model-config?color=blue)](./LICENSE)
-[![GitHub release](https://img.shields.io/github/v/release/xinghe-labs/pi-model-config?color=blue)](https://github.com/xinghe-labs/pi-model-config/releases)
+[![GitHub release](https://img.shields.io/github/v/release/xinghe-labs/pi-model-config?color=blue&v=2)](https://github.com/xinghe-labs/pi-model-config/releases)
 [![node](https://img.shields.io/node/v/pi-model-config?color=339933)](package.json)
 
 **一个 URL 加一个 Key。模型的参数是推断出来的，不是手填的。**
