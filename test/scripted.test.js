@@ -12,7 +12,7 @@ import test from "node:test";
 import { onlyIds, parseOptions, wantsAll, wantsWrite } from "../src/args.js";
 import { checkFlow } from "../src/flows/check.js";
 import { defaultFlow, planDefault } from "../src/flows/default.js";
-import { listFlow, renderProviderList } from "../src/flows/list.js";
+import { listFlow } from "../src/flows/list.js";
 import { modelsFlow } from "../src/flows/models.js";
 import { editFlow } from "../src/flows/edit.js";
 import { removeFlow } from "../src/flows/remove.js";
@@ -59,10 +59,17 @@ function scriptCtx({ confirm = true } = {}) {
 }
 
 // print/JSON/RPC mode: no UI at all, so notify() writes to the streams.
+// The one true original, captured at module load. printCtx is sometimes called
+// several times in one test (several sub-flows, each with its own log); stacking
+// capture-and-restore pairs unwinds wrong no matter the hook order — restoring
+// "the value captured when I was installed" reinstalls the previous sink, so the
+// last hook always left a sink behind and the whole file's TAP output vanished
+// into a discarded log. Restoring the module-load original is order-proof.
+const PRISTINE_STDOUT_WRITE = process.stdout.write.bind(process.stdout);
+const PRISTINE_STDERR_WRITE = process.stderr.write.bind(process.stderr);
+
 function printCtx(t) {
 	const log = [];
-	const out = process.stdout.write;
-	const err = process.stderr.write;
 	const sink = (chunk) => {
 		log.push(String(chunk));
 		return true;
@@ -70,8 +77,8 @@ function printCtx(t) {
 	process.stdout.write = sink;
 	process.stderr.write = sink;
 	t.after(() => {
-		process.stdout.write = out;
-		process.stderr.write = err;
+		process.stdout.write = PRISTINE_STDOUT_WRITE;
+		process.stderr.write = PRISTINE_STDERR_WRITE;
 	});
 	return { log, cwd: process.cwd(), hasUI: false, model: {}, modelRegistry: { refresh: async () => {} }, ui: {} };
 }
@@ -1262,4 +1269,97 @@ test("sync refuses to run when model-config.json is unparseable", async (t) => {
 
 	assert.match(text(ctx), /sync 失败：model-config\.json could not be parsed/);
 	assert.equal(fs.readFileSync(path.join(dir, "models.json"), "utf8"), before, "sync must not act without the ignore list");
+});
+
+// ---- hiddenModels bookkeeping ---------------------------------------------
+// A deleted provider can never be synced again, so its ignore list is dead
+// weight; a rename must carry it over, or sync re-adds ids the user deleted.
+
+test("remove clears the provider's ignore list and mentions the models-store residual", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", cost: ZERO }]), other: provider([{ id: "n", cost: ZERO }]) });
+	fs.writeFileSync(
+		path.join(dir, "model-config.json"),
+		JSON.stringify({ hiddenModels: { gw: ["m"], other: ["n"] } }),
+	);
+	const log = [];
+	const ctx = {
+		log, cwd: dir, hasUI: true, model: {}, modelRegistry: { refresh: async () => {} },
+		ui: {
+			notify: (text_, level) => log.push({ text: text_, level }),
+			select: async (_title, items) => items.find((i) => !i.includes("全部")) ?? items[0],
+			confirm: async () => true,
+			input: async () => { throw new Error("unexpected input"); },
+		},
+	};
+
+	await removeFlow(ctx, {});
+
+	const userConfig = JSON.parse(fs.readFileSync(path.join(dir, "model-config.json"), "utf8"));
+	assert.equal(userConfig.hiddenModels.gw, undefined, "the deleted provider's ignore list is gone");
+	assert.deepEqual(userConfig.hiddenModels.other, ["n"], "other providers' lists survive");
+	assert.match(text(ctx), /models-store\.json/);
+});
+
+test("a corrupt model-config.json does not block remove; the delete still happens", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", cost: ZERO }]) });
+	fs.writeFileSync(path.join(dir, "model-config.json"), "{ not json");
+	const log = [];
+	const ctx = {
+		log, cwd: dir, hasUI: true, model: {}, modelRegistry: { refresh: async () => {} },
+		ui: {
+			notify: (text_, level) => log.push({ text: text_, level }),
+			select: async (_title, items) => items.find((i) => !i.includes("全部")) ?? items[0],
+			confirm: async () => true,
+			input: async () => { throw new Error("unexpected input"); },
+		},
+	};
+
+	await removeFlow(ctx, {});
+
+	assert.equal(written(dir).providers.gw, undefined, "the provider was still deleted");
+	assert.match(text(ctx), /忽略名单没清掉/);
+	assert.equal(
+		fs.readFileSync(path.join(dir, "model-config.json"), "utf8"),
+		"{ not json",
+		"the corrupt file must not be overwritten",
+	);
+});
+
+test("edit --id migrates the ignore list to the new provider id", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, {
+		gw: provider([{ id: "m", cost: ZERO }, { id: "hidden-one", cost: ZERO }]),
+		other: provider([{ id: "n", cost: ZERO }]),
+	});
+	fs.writeFileSync(
+		path.join(dir, "model-config.json"),
+		JSON.stringify({ hiddenModels: { gw: ["hidden-one"], other: ["n"] } }),
+	);
+	const ctx = scriptCtx();
+
+	await editFlow(ctx, { argv: ["gw", "--id", "renamed", "--all"], fetchImpl: editFetch() });
+
+	const userConfig = JSON.parse(fs.readFileSync(path.join(dir, "model-config.json"), "utf8"));
+	assert.deepEqual(userConfig.hiddenModels.renamed, ["hidden-one"], "the ignore list follows the rename");
+	assert.equal(userConfig.hiddenModels.gw, undefined, "the old key is gone");
+	assert.deepEqual(userConfig.hiddenModels.other, ["n"], "other providers' lists survive");
+});
+
+test("a renamed provider with no ignore list is a no-op for model-config.json", async (t) => {
+	const dir = withAgentDir(t);
+	seed(dir, { gw: provider([{ id: "m", cost: ZERO }]) });
+	// An existing (unrelated) file must survive byte-for-byte.
+	fs.writeFileSync(path.join(dir, "model-config.json"), JSON.stringify({ runtimeProviders: [] }));
+	const before = fs.readFileSync(path.join(dir, "model-config.json"), "utf8");
+	const ctx = scriptCtx();
+
+	await editFlow(ctx, { argv: ["gw", "--id", "renamed", "--all"], fetchImpl: editFetch() });
+
+	assert.equal(
+		fs.readFileSync(path.join(dir, "model-config.json"), "utf8"),
+		before,
+		"nothing was written when there is nothing to migrate",
+	);
 });

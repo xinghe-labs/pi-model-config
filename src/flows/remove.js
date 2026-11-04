@@ -11,7 +11,7 @@ import { backupFile, readModelsConfig, readSettings, writeJson } from "../json-f
 import { errorMessage, notify, requireUI } from "../output.js";
 import { modelsJsonPath } from "../paths.js";
 import { removeScopeUpdate, scopedEntriesFor } from "../scope.js";
-import { isRuntimeProvider } from "../user-config.js";
+import { isRuntimeProvider, removeProviderHiddenModels } from "../user-config.js";
 
 export async function removeFlow(ctx) {
 	if (!requireUI(ctx, "remove")) return;
@@ -70,6 +70,14 @@ export async function removeFlow(ctx) {
 	}
 	notify(ctx, `已删除 ${target}，models.json 已备份。`);
 
+	// The provider is gone, so its ignore list can never be consulted again.
+	// Removing it here keeps model-config.json free of orphaned keys. A failed
+	// cleanup is reported, not undone: the models.json deletion already happened.
+	const hiddenResult = removeProviderHiddenModels(ctx, target);
+	if (hiddenResult.ok === false) {
+		notify(ctx, `models.json 里的 ${target} 已删除，但 model-config.json 里它的忽略名单没清掉，可手工删除。`, "warning");
+	}
+
 	const stale = scopedEntriesFor(readSettings(), target);
 	if (stale.length) {
 		notify(
@@ -85,4 +93,14 @@ export async function removeFlow(ctx) {
 	if (ctx.model?.provider === target) {
 		notify(ctx, "警告：当前会话用的模型属于刚删除的供应商，请用 /model 换一个。", "warning");
 	}
+	// pi's own refresh writes provider catalogs into models-store.json and never
+	// deletes them (deleteProvider only drops the in-memory provider), so a
+	// session that was running during this delete can write the entry back.
+	// Saying so saves an "it came back" debugging session.
+	notify(
+		ctx,
+		"说明：models-store.json（pi 的模型目录缓存）里可能留有该供应商的死条目，无害；" +
+			"运行中的会话刷新时可能把它写回，想彻底清掉请在退出所有 pi 会话后编辑该文件。",
+		"info",
+	);
 }

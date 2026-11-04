@@ -124,6 +124,52 @@ export function updateUserConfig(ctx, mutator, what) {
 	}
 }
 
+// Remove a deleted provider's ignore list. A provider that no longer exists can
+// never be synced again, so its hiddenModels entry is dead weight that only
+// accumulates. Deleting the key (rather than leaving []) keeps the file free of
+// orphans; a missing key is a no-op.
+export function removeProviderHiddenModels(ctx, pids) {
+	const ids = (Array.isArray(pids) ? pids : [pids]).filter((p) => typeof p === "string" && p.trim());
+	if (!ids.length) return { ok: true };
+	return updateUserConfig(
+		ctx,
+		(parsed) => {
+			const hidden = parsed.hiddenModels && typeof parsed.hiddenModels === "object" ? { ...parsed.hiddenModels } : {};
+			let changed = false;
+			for (const pid of ids) {
+				if (!(pid in hidden)) continue;
+				delete hidden[pid];
+				changed = true;
+			}
+			if (!changed) return undefined;
+			return { ...parsed, hiddenModels: hidden };
+		},
+		"忽略名单清理",
+	);
+}
+
+// A rename must carry the ignore list over: hiddenModels is keyed by provider
+// id, so leaving the key on the old name silently un-hides every model — the
+// next sync would re-add ids the user deleted. Merged into the new key so a
+// rename never drops ids the new name already accumulated.
+export function renameProviderHiddenModels(ctx, fromPid, toPid) {
+	const from = String(fromPid ?? "").trim();
+	const to = String(toPid ?? "").trim();
+	if (!from || !to || from === to) return { ok: true };
+	return updateUserConfig(
+		ctx,
+		(parsed) => {
+			const hidden = parsed.hiddenModels && typeof parsed.hiddenModels === "object" ? { ...parsed.hiddenModels } : {};
+			if (!(from in hidden)) return undefined;
+			const list = hidden[from];
+			delete hidden[from];
+			hidden[to] = [...new Set([...(Array.isArray(hidden[to]) ? hidden[to] : []), ...list])];
+			return { ...parsed, hiddenModels: hidden };
+		},
+		"忽略名单迁移",
+	);
+}
+
 function mutateHiddenModels(parsed, changes) {
 	const hidden = parsed.hiddenModels && typeof parsed.hiddenModels === "object" ? { ...parsed.hiddenModels } : {};
 	let changed = false;

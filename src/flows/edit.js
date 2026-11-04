@@ -23,6 +23,7 @@ import { errorMessage, notify, canPrompt, requireUI } from "../output.js";
 import { modelsJsonPath } from "../paths.js";
 import { probeHeaders, probeUrl } from "../probe.js";
 import { applyScopeUpdate, removeScopeUpdate } from "../scope.js";
+import { renameProviderHiddenModels } from "../user-config.js";
 import { normalizeBaseUrl, validateProviderId } from "./add.js";
 
 const CANCELLED = "已取消";
@@ -247,6 +248,22 @@ export async function applyEdit(ctx, plan) {
 			}
 		} else {
 			notify(ctx, `提示：enabledModels 里若有 ${plan.pid}/… 条目，需要手动改成 ${renamedTo}/…。`, "warning");
+		}
+	}
+
+	// A rename must carry the ignore list over to the new id, otherwise sync
+	// looks hidden ids up under the old key, misses them, and re-adds models the
+	// user deleted. Best-effort: models.json is already written, so a failed
+	// migration is reported rather than rolled back.
+	if (renamedTo) {
+		const hiddenResult = renameProviderHiddenModels(ctx, plan.pid, renamedTo);
+		if (hiddenResult.ok === false) {
+			notify(
+				ctx,
+				`注意：model-config.json 里 ${plan.pid} 的忽略名单没迁移到 ${renamedTo}，` +
+					"sync 可能把之前删除的模型重新补回，可手工把键名改过去。",
+				"warning",
+			);
 		}
 	}
 
