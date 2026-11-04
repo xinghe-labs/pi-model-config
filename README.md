@@ -3,7 +3,7 @@
 [![npm version](https://img.shields.io/npm/v/pi-model-config?color=cb3837&label=npm)](https://www.npmjs.com/package/pi-model-config)
 [![npm downloads](https://img.shields.io/npm/dm/pi-model-config?color=cb3837)](https://www.npmjs.com/package/pi-model-config)
 [![license](https://img.shields.io/github/license/xinghe-labs/pi-model-config?color=blue)](./LICENSE)
-[![GitHub release](https://img.shields.io/github/v/release/xinghe-labs/pi-model-config?include_prereleases=false&color=blue)](https://github.com/xinghe-labs/pi-model-config/releases)
+[![GitHub release](https://img.shields.io/github/v/release/xinghe-labs/pi-model-config?color=blue)](https://github.com/xinghe-labs/pi-model-config/releases)
 [![node](https://img.shields.io/node/v/pi-model-config?color=339933)](package.json)
 
 **A URL and a key. The model's numbers are derived, not typed.**
